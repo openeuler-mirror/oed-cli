@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oed-cli"
+version = "0.1.1"
+description = "oed — openEuler Infra command line. Auto-discovered, AI-friendly."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "oed-cli contributors"},
+]
+keywords = [
+    "openEuler", "cli", "discovery", "ai-agent", "openapi",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+]
+dependencies = [
+    "click>=8.1",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "build>=1.0",       # python -m build → wheel + sdist
+    "twine>=5.0",       # twine upload → PyPI / TestPyPI
+]
+
+[project.scripts]
+oed = "oed_cli.main:main"
+
+[project.urls]
+Homepage = "https://atomgit.com/openeuler/oed-cli"
+"Documentation" = "https://atomgit.com/openeuler/oed-cli/blob/master/docs/cli-design.md"
+"Bug Tracker" = "https://atomgit.com/openeuler/oed-cli/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+oed_cli = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
