@@ -63,7 +63,7 @@ pip install -e .
 Verify:
 
 ```bash
-oed --version       # → oed, version 0.1.1
+oed --version       # → oed, version 0.1.5
 ```
 
 ---
@@ -74,6 +74,22 @@ oed --version       # → oed, version 0.1.1
 pip install oed-cli
 oed cve getSecurityNoticeByCveId --cve-id CVE-2019-10082
 ```
+#### (optional) Call an AtomGit operation — store a token once
+
+Operations on the `ag` (AtomGit) service authenticate via an `access_token`
+query parameter. Store a personal access token once, and every `oed ag ...`
+call injects it automatically:
+
+```bash
+oed ag login
+```
+
+Then `oed ag listAuthenticatedUserIssues` just works — no per-call token
+flag needed. Full details (`oed ag login --token <pat> [--no-verify]`,
+`--status`, `oed ag logout`, how the token is stored, auto-injection rules)
+are in the [AtomGit (`ag`) authentication](#atomgit-ag-authentication)
+section below.
+
 
 That's it. `oed` discovers the service from the gateway, pulls its OpenAPI
 spec, derives `--cve-id` from the declared `query` parameter, fills WAF-safe
@@ -196,6 +212,49 @@ oed schema cve | jq '.paths | keys'
 
 ---
 
+## AtomGit (`ag`) authentication
+
+AtomGit operations authenticate through the `access_token` query parameter
+declared on their spec. Store a personal access token once, and every
+`oed ag ...` call uses it automatically:
+
+```bash
+# Interactive (prompts for the token, never echoes it back)
+oed ag login
+
+# Non-interactive — good for CI / scripts
+oed ag login --token <pat>
+
+# Skip validating the token against AtomGit before storing
+oed ag login --token <pat> --no-verify
+
+# Just report whether a token is configured (no network, no prompt)
+oed ag login --status
+
+# Forget the stored token
+oed ag logout
+```
+
+Token storage:
+
+- Windows: encrypted at rest for the current user via DPAPI (no extra deps).
+- Elsewhere: base64, which is documented obfuscation, **not** encryption.
+- Lives under the cache dir (`tokens/ag.json`); `oed cache clear` never
+  touches credentials.
+
+Auto-injection on real calls:
+
+- If the operation declares `access_token` and you don't pass one, the stored
+  token is filled in automatically — `oed ag listAuthenticatedUserIssues` just
+  works.
+- An explicit `--access-token <pat>` always wins over the stored one.
+- If the operation requires a token and none is available anywhere, you get a
+  clear `ag_token_missing` error with a hint, instead of an opaque gateway 401.
+- `--dry-run` and request echo views mask the token as `<stored>` — the real
+  value only ever goes out on the wire.
+
+---
+
 ## Local development
 
 ### Clone and install (editable)
@@ -214,9 +273,10 @@ invocation. Drop it with `pip uninstall oed-cli` when you're done.
 python -m pytest -q
 ```
 
-41 tests cover v0.1 + v0.2 dispatch, the operation-help cheatsheet,
+58 tests cover v0.1 + v0.2 dispatch, the operation-help cheatsheet,
 per-parameter flag coercion, the `API_`-prefix alias, the
-`resolve_runtime_gateway` no-fallback semantics, and every exit code path.
+`resolve_runtime_gateway` no-fallback semantics, every exit code path, and
+v0.4's `ag` token store (DPAPI/base64) + auto-injection.
 They monkeypatch the discovery layer so no gateway access is needed.
 
 ### Smoke-test against the live gateway
@@ -294,6 +354,7 @@ to eyeball `oed services` output every week.
 | `oed info` hangs or `waf_block` exit 2             | gateway unreachable / WAF      | confirm `curl https://api-gateway.osinfra.cn`; see `context/discoverAPI.md` §6 |
 | Chinese output garbled on Windows                  | console codepage not UTF-8     | `chcp 65001`, or pipe `\| python`, or `PYTHONIOENCODING=utf-8 oed …` |
 | `error="spec_missing"` (exit 4) on a known service | upstream hasn't published the spec yet | wait for the gateway-side OpenAPI yaml; nothing to do on the oed side |
+| `error="ag_token_missing"` on an `ag` call | operation needs a token, none stored | `oed ag login` (or pass `--access-token <pat>`) |
 | A `cve` call exits 2 (`waf_block`)      | spec points to a `.test.osinfra.cn` host | already handled — `oed` reads `base_url` from the discovery feed (no fallback) and ignores the spec's `x-apigateway-backend.httpEndpoints.address` for the host |
 
 ### Offline mode

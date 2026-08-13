@@ -24,6 +24,7 @@ from typing import Any
 import httpx
 
 from . import http as http_mod
+from .auth import read_token
 from .dynamic import Operation, coerce_param_types, to_flag
 from .errors import NetworkError, UserError
 from .http import _is_waf_block, _resolve_user_agent
@@ -34,6 +35,12 @@ def _fill_path(template: str, params: dict[str, Any]) -> tuple[str, list[str]]:
 
     Returns the rendered path and the list of placeholder names that were
     not provided, so the caller can raise a precise error.
+
+    Huawei APIG marks required path params with a trailing ``+`` in the
+    template (``/t/{id+}``); the ``+`` is a spec-side marker that never
+    appears in the real request URL or in the declared
+    ``parameters[].name``. Strip it so the lookup matches what the
+    caller actually provided under ``--<flag>`` / ``--params``.
     """
 
     missing: list[str] = []
@@ -48,13 +55,14 @@ def _fill_path(template: str, params: dict[str, Any]) -> tuple[str, list[str]]:
         if name_end == -1:
             parts.append(head + sep + chunk)
             break
-        name = chunk[:name_end]
+        raw_name = chunk[:name_end]
+        name = raw_name.rstrip("+")
         parts.append(head)
         if name in params:
             parts.append(str(params[name]))
         else:
             missing.append(name)
-            parts.append("{" + name + "}")
+            parts.append("{" + raw_name + "}")
         rest = chunk[name_end + 1 :]
     return "".join(parts), missing
 
@@ -119,6 +127,33 @@ def _render_response(resp: httpx.Response) -> Any:
         }
 
 
+def _inject_ag_token(op: Operation, query_params: dict[str, Any]) -> None:
+    """Auto-fill the ``access_token`` query param for AtomGit operations.
+
+    ``ag`` authenticates every request through the ``access_token`` query
+    parameter declared on its spec (用户授权码). When the caller didn't
+    pass one explicitly, fall back to the locally stored token from
+    ``oed ag login``. A required token that isn't available anywhere
+    raises a hint instead of failing inside the gateway; optional ones
+    simply go without.
+    """
+
+    declared = next(
+        (p for p in op.query_params if p.get("name") == "access_token"), None
+    )
+    if op.service_name != "ag" or declared is None or "access_token" in query_params:
+        return
+    token = read_token("ag")
+    if token:
+        query_params["access_token"] = token
+    elif declared.get("required"):
+        raise UserError(
+            "this AtomGit operation requires an access_token",
+            kind="ag_token_missing",
+            hint="Store one with `oed ag login`, or pass `--access-token <pat>`.",
+        )
+
+
 def call_operation(
     op: Operation,
     *,
@@ -151,16 +186,28 @@ def call_operation(
         )
 
     query_params = {k: v for k, v in query_params.items() if v is not None}
+    _inject_ag_token(op, query_params)
     url = f"{op.base_url}{filled_path}"
+
+    # Discourse (forum) authenticates via Api-Key/Api-Username; inert sentinel
+    # until login lands, so the request shape stays visible without leaking a real credential.
+    api_headers: dict[str, str] = {}
+    if op.service_name == "forum":
+        api_headers = {"Api-Key": "oed-placeholder", "Api-Username": "oed-placeholder"}
 
     request_headers: dict[str, str] = {"User-Agent": _resolve_user_agent(user_agent)}
     if body is not None:
         request_headers["Content-Type"] = "application/json"
+    # Mask credentials in any echoed request view (dry-run / include_request):
+    # the real token still goes out on the wire, it just never round-trips
+    # back to the terminal.
     request_view: dict[str, Any] = {
         "method": op.backend.method,
         "url": url,
-        "query": query_params,
-        "headers": request_headers,
+        "query": {
+            k: ("<stored>" if k == "access_token" else v) for k, v in query_params.items()
+        },
+        "headers": {**request_headers, **api_headers},
         "body": body,
     }
 
@@ -184,6 +231,7 @@ def call_operation(
         url,
         params=query_params if query_params else None,
         body=body,
+        headers=api_headers,
         timeout=timeout,
         user_agent=user_agent,
     )

@@ -220,7 +220,7 @@ def test_help_enumerates_discovered_services(runner, patched_discovery):
     # Quickstart now leads with the per-parameter flag style and the canonical
     # CVE example; it should not mention the legacy API_<NAME> placeholder.
     assert "API_<NAME>" not in text
-    assert "--<flag>" in text
+    assert "--<kebab-case>" in text
     assert "getSecurityNoticeByCveId --cve-id" in text
 
 

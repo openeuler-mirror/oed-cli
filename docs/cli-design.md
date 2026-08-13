@@ -115,6 +115,8 @@ oed software-package-server listSoftwarePackages \
           │
           ├──► invoke.py      实际调用：拼 URL → 发请求 → 封 JSON
           │
+          ├──► auth.py        本地 token 存储（Windows DPAPI / 其余 base64）+ ag 凭证自动注入
+          │
           ├──► main.py        顶层 dispatcher（保留命令 vs 动态分发）
           │
           └──► errors.py      退出码（0/1/2/3/4）+ 友好异常
@@ -142,11 +144,14 @@ oed-cli/
 │       ├── discovery.py            # 拉取 + 缓存
 │       ├── dynamic.py              # OpenAPI → 调度表 + per-param flag 推导（v0.2+）
 │       ├── invoke.py               # 实际调用 / 描述 service & operation（v0.2+）
+│       ├── auth.py                 # 本地 token 存储（DPAPI/base64）+ ag 自动注入（v0.4+）
 │       └── errors.py               # 退出码 + OedError 体系
 └── tests/
     ├── test_cli.py                 # v0.1 保留命令 + --help 装饰
     ├── test_discovery.py           # discovery 缓存
-    └── test_dynamic.py             # v0.2 调度 + per-param flag + API_ 前缀
+    ├── test_dynamic.py             # v0.2 调度 + per-param flag + API_ 前缀
+    ├── test_invoke.py              # v0.4 ag access_token 自动注入
+    └── test_auth.py                # v0.4 token 存储（DPAPI/base64）单元测试
 ```
 
 最小脚手架阶段先交付：pyproject + __init__ + __main__ + cli + http + discovery + errors。main / dynamic / invoke 在 v0.2 PR 完成。
@@ -183,7 +188,14 @@ oed-cli/
 - **URL 规则**：每个 `Operation.base_url`（在 `dynamic.py` 由 `resolve_runtime_gateway(service)` 一次性填好） + `op.path`。**不信任** `x-apigateway-backend.httpEndpoints.address`（spec 里常填测试域如 `cvesa.test.osinfra.cn`，会被 CloudWAF 拦截）。该块只用于推断 method / scheme。
 - `describe_service(service, ops)`:  `oed <service>` 单参时打印的清单，包含 `url`（真实调用地址，已带服务自身的 `base_url`）和 `backend_declared`（spec 写的后端，仅供诊断）。
 - `describe_operation_help(op, service)`:  `oed <service> <op> --help` 输出的 JSON，含每个参数的 `--<flag>` 形式 + 可粘贴的 usage 行。
+- **ag 凭证自动注入**：`ag`（AtomGit）的每个请求通过 spec 声明的 `access_token` query 参数鉴权。`call_operation` 在调用前调用 `_inject_ag_token`：若操作声明了 `access_token` 且调用方没有显式传，就从本地存储（`auth.read_token("ag")`，由 `oed ag login` 写入）自动填充；声明为必填但没有任何 token 时抛 `kind="ag_token_missing"` 的 `UserError`（hint 提示 `oed ag login` 或 `--access-token`）。任何回显的 `request` 视图（`--dry-run` / `--include-request`）把 `access_token` 掩码成 `<stored>`，真实 token 只出现在实际发出的请求里。
 - WAF 拦截被识别为 `kind="waf_block"` 的 `NetworkError`。
+
+**`auth.py`** (v0.4 新增)
+- 本地 secret 存储，按 `service` 分文件存于缓存目录下 `tokens/<service>.json`（继承 `OED_CACHE_DIR`；`oed cache clear` 只删 discovery.json，不会误清凭证）。
+- Windows 上经 DPAPI（`CryptProtectData`/`CryptUnprotectData`，ctypes 调用）加密，加密边界真实且零运行时依赖；非 Windows 平台退化为 base64（文档化混淆，**非**加密）。
+- 磁盘 schema 带 `version` 字段（当前 `1`）+ `service` 键，未来通用 `oed login` 可复用同一存储。
+- API：`store_token(token, service)` / `read_token(service)` / `clear_token(service)` / `token_info(service)` / `token_path(service)`。读取失败（缺文件 / 坏 JSON / 无法解密）一律静默返回 `None`，让调用方落到 missing-token 路径。
 
 **`main.py`** — 顶层 dispatcher（v0.2 起为入口）
 - `main()` 是 `oed` 的 entry point（pyproject 的 `oed = oed_cli.main:main`）；`__main__.py` 把 `python -m oed_cli` 也指过来。
@@ -191,6 +203,7 @@ oed-cli/
 - `_split_dispatch_argv` 第一遍解析：把 `--<flag> value`、裸 `--<flag>`、`--help`/`-h`、positional 分桶；未知 `--<flag>` 暂存等操作解析后再校验。
 - 操作解析（service → spec → operation）完成后，未知 `--<flag>` 通过 `param_flag_index` 跟声明参数对齐；匹配不上且不在 `_VALUE_FLAGS={"params","json","path"}` / `_BOOL_FLAGS={"dry-run"}` 内则报 `unknown_flag` + 提示声明了哪些参数。
 - per-param flag 与 `--params` JSON 共存：flag 覆盖 `--params` 同名字段；类型由 `coerce_flag_value` + `coerce_param_types` 双层强转。
+- **保留子命令**：`service_name == "ag"` 且 method 为 `login` / `logout` 时走本地凭证管理，不进动态分发 —— `oed ag login`（交互式 `--token` 或静默提示，默认向 AtomGit 校验 token，`--no-verify` 跳过，`--status` 只查不写）、`oed ag logout`。见 §4.2 `auth.py`。
 - 操作级 `--help` 短路在 flag 校验之前：未知 flag + `--help` 仍展示帮助，方便探索。
 - 任何 `OedError` 都被 catch 后以 `{"ok":false,"code":N,"error":...}` 形式写到 stderr 并返回对应退出码；非 2xx/3xx 时 stdout 也写响应体但退出码仍非零。
 
@@ -284,7 +297,7 @@ pytest
 | **`$APIG_GROUP_ENTRY_URL` 占位** | 每个服务的运行时 base URL = `resolve_runtime_gateway(service) + op.path`。解析器读 `ServiceMeta.base_url`（来自 discovery feed），去掉尾部 `/` 和空白后原样返回；**无 fallback**。spec 里的 `servers[0].url` 不参与。 | 当下所有 openeuler 服务在 feed 里都返回真实的 `base_url`（如 `https://apig.osinfra.cn`）；若 gateway 在过渡期返回空或占位符，HTTP 调用会直接失败暴露问题，而不是被静默重写到旧常量。`x-apigateway-backend.httpEndpoints.address` 常指向测试域 `*.test.osinfra.cn`，会被 CloudWAF 拦截，因此该字段仅用于推断 `method/scheme`，不用于 host。 |
 | **多社区支持** | MVP 默认 `openeuler`；`OED_COMMUNITY` 环境变量切换；`oed services --community X` 限定一个社区 | 与 gws 的 `project` 选择类似 |
 | **缓存失效** | discovery + 单服务 spec 都 TTL 10 分钟；`oed cache refresh` 强制刷 discovery；`oed cache show/clear` 看 / 清 | 避免动态命令表抖动，详情见 README "Keeping in sync with the gateway" |
-| **认证** | MVP 不内置鉴权；仅透传网关侧已有策略 | 透传机制（`-H` flag、`OED_HTTP_HEADERS_FILE` 等）排到 v0.4；目前用 `OED_GATEWAY_URL` 切整个网关 |
+| **认证** | `ag`（AtomGit）操作经 spec 声明的 `access_token` query 参数鉴权；`oed ag login/logout/status` 管理本地 token（Windows DPAPI 加密 / 其余平台 base64 混淆），真实调用自动注入已存 token，回显视图掩码为 `<stored>`。显式 `--access-token` 优先于本地存储。其他服务暂无本地凭证，仍走网关侧已有策略 | v0.4 的 `oed login` 子命令 + 自动注入已为 `ag` 落地（见 §8）；`OED_TOKEN` 环境变量 / 通用 `Authorization` 注入未做 |
 | **shell 补全** | 计划由 click 原生支持（`oed completion {bash,zsh,fish,powershell}`），尚未实现 | v1.0 路线图 |
 | **错误处理** | 任何 `OedError` 被顶层 catch 后以 JSON 形式写 stderr 并返回对应退出码（0/1/2/3/4）；stdout 在出错时仍为空，方便 `\| jq` 安全管道 | 详见 §4.2 错误码表 |
 
@@ -298,7 +311,7 @@ pytest
 | v0.2 | 动态方法分发：`oed <service> <method> --params ... --json ... --dry-run`，输出 `request` 视图，禁用 OedError 转 JSON 返回 | ✅ 已发布 |
 | v0.2.1 | Per-parameter flag 表面：每个声明参数自动转 `--<kebab-case>`（`--cve-id` 而非 `--params '{"cveId":…}'`），operation 级 `--help`，APIG `API_` 前缀自动剥离并保留为别名 | ✅ 已发布 |
 | v0.3 | `--page-all`、NDJSON 流式分页、`--human` 美化输出 | 未开始 |
-| v0.4 | 鉴权插件：`OED_TOKEN` 环境变量、`oed login` 子命令、`Authorization` 自动注入 | 未开始 |
+| v0.4 | 鉴权插件：`oed ag login/logout/status` 本地 token 存储（DPAPI/base64）+ `ag` 请求自动注入 `access_token`（显式传参优先、回显掩码） | 部分落地（仅 `ag` 服务；`OED_TOKEN` 环境变量、通用 `Authorization` 注入未做） |
 | v1.0 | PyPI 首发 + 完整测试 + 跨平台 shell 补全 + 文档站 | 未开始 |
 
 > v0.2 解锁了**直接调用云服务**的核心承诺（`oed <service> <method> ...`）。

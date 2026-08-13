@@ -6,7 +6,6 @@ layers, so they need no gateway access.
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -154,11 +153,21 @@ def patched(monkeypatch):
     monkeypatch.setattr(dyn, "fetch_discovery", lambda **_: fake_feed)
     monkeypatch.setattr(dyn, "fetch_service_spec", lambda svc, **_: SAMPLE_SPEC)
 
+    # main.py binds fetch_service_spec by value at import time, so rebind it
+    # here too — otherwise these tests only pass if main happens to be imported
+    # after the dyn patches above (order-dependent when other test files import
+    # main first).
+    from oed_cli import main as main_mod
+
+    monkeypatch.setattr(main_mod, "fetch_service_spec", lambda svc, **_: SAMPLE_SPEC)
+
     # Stub http request so we can verify URL building without going to network
 
     captured = {}
 
-    def _fake_do_call(method, url, params=None, body=None, timeout=30.0, headers=None, user_agent=None):
+    def _fake_do_call(
+        method, url, params=None, body=None, timeout=30.0, headers=None, user_agent=None
+    ):
         class _R:
             status_code = 200
             content = b'{"code":"","msg":"","data":{"ok":true}}'
@@ -172,6 +181,7 @@ def patched(monkeypatch):
         captured["url"] = url
         captured["params"] = params
         captured["body"] = body
+        captured["headers"] = headers or {}
         captured["user_agent"] = user_agent
         return _R()
 
@@ -515,6 +525,44 @@ def test_call_operation_post_sends_body(patched):
     assert patched["captured"]["body"] == body
 
 
+def test_call_operation_forum_sends_api_headers(patched):
+    """Forum (Discourse) requests carry the Api-Key / Api-Username sentinels
+    on the real request and in the dry-run view."""
+
+    from oed_cli.dynamic import operations_table
+    from oed_cli.invoke import call_operation
+
+    table = operations_table(SAMPLE_SPEC, "forum", base_url="https://apig.osinfra.cn")
+    op = table["API_getSoftwarePackage"]
+
+    call_operation(op, params={"id": "1"})
+    assert patched["captured"]["headers"] == {
+        "Api-Key": "oed-placeholder",
+        "Api-Username": "oed-placeholder",
+    }
+
+    dry = call_operation(op, params={"id": "1"}, dry_run=True)
+    assert dry["request"]["headers"]["Api-Key"] == "oed-placeholder"
+    assert dry["request"]["headers"]["Api-Username"] == "oed-placeholder"
+
+
+def test_call_operation_non_forum_omits_api_headers(patched):
+    """Non-forum services get no extra auth headers."""
+
+    from oed_cli.dynamic import operations_table
+    from oed_cli.invoke import call_operation
+
+    table = operations_table(
+        SAMPLE_SPEC, "software-package-server", base_url="https://apig.osinfra.cn"
+    )
+    op = table["API_getSoftwarePackage"]
+
+    call_operation(op, params={"id": "1"})
+    headers = patched["captured"]["headers"]
+    assert "Api-Key" not in headers
+    assert "Api-Username" not in headers
+
+
 def test_call_operation_missing_path_param_raises_user_error(patched):
     from oed_cli.dynamic import operations_table
     from oed_cli.errors import UserError
@@ -524,6 +572,49 @@ def test_call_operation_missing_path_param_raises_user_error(patched):
     op = table["API_getSoftwarePackage"]
     with pytest.raises(UserError):
         call_operation(op)  # no id
+
+
+def test_call_operation_strips_trailing_plus_in_path_template(patched):
+    """Huawei APIG marks required path params with ``{name+}`` in the path
+    template (``/t/{id+}``). The declared ``parameters[].name`` is plain
+    ``id`` — the ``+`` is a spec-side marker. ``oed forum getTopic --id 19308``
+    must therefore resolve the user's ``--id`` value into the rendered URL,
+    not complain that ``id+`` is missing."""
+
+    from oed_cli.dynamic import operations_table
+    from oed_cli.invoke import call_operation
+
+    spec = {
+        "openapi": "3.0.1",
+        "paths": {
+            "/t/{id+}": {
+                "get": {
+                    "operationId": "getTopic",
+                    "parameters": [
+                        {"in": "path", "name": "id",
+                         "required": True, "schema": {"type": "string"}},
+                    ],
+                }
+            }
+        },
+    }
+    table = operations_table(spec, "forum", base_url="https://apig.osinfra.cn")
+    op = table["getTopic"]
+
+    payload = call_operation(op, params={"id": "19308"})
+    assert patched["captured"]["url"].endswith("/t/19308")
+    assert payload["ok"] is True
+    assert payload["status"] == 200
+
+    # Missing-param error must use the clean name (what the user types),
+    # not the APIG-side ``id+`` form.
+    from oed_cli.errors import UserError
+    try:
+        call_operation(op)
+    except UserError as exc:
+        assert exc.to_dict()["message"] == "missing path params: ['id']"
+    else:
+        pytest.fail("expected UserError for missing path param")
 
 
 # ---------- main.py dispatch ----------
@@ -577,7 +668,6 @@ def test_service_level_help_with_method_rejected(patched, monkeypatch, capsys):
 
 
 def test_spec_missing_returns_exit_4(patched, runner, monkeypatch, capsys):
-    from oed_cli import dynamic as dyn
     from oed_cli import main as oed_main
     from oed_cli.errors import NotFoundError
 
@@ -603,14 +693,17 @@ def test_spec_missing_returns_exit_4(patched, runner, monkeypatch, capsys):
 def test_describe_helpers_and_main_dispatch(patched, monkeypatch, capsys):
     """Compact sweep covering describe_*, main per-param flag dispatch,
     and parse_json_arg / coerce_flag_value edge cases."""
+    from oed_cli import main as oed_main
     from oed_cli.discovery import ServiceMeta
     from oed_cli.dynamic import (
-        collect_operations, operations_table, parse_json_arg,
-        coerce_flag_value, resolve_operation,
+        coerce_flag_value,
+        collect_operations,
+        operations_table,
+        parse_json_arg,
+        resolve_operation,
     )
-    from oed_cli.invoke import describe_service, describe_operation_help, call_operation
-    from oed_cli import main as oed_main
     from oed_cli.errors import UserError
+    from oed_cli.invoke import call_operation, describe_operation_help, describe_service
 
     svc = ServiceMeta.from_raw(SAMPLE_FEED["communities"]["openeuler"][0])
     ops = collect_operations(SAMPLE_SPEC, svc.service_name)
@@ -662,14 +755,84 @@ def test_describe_helpers_and_main_dispatch(patched, monkeypatch, capsys):
     assert coerce_flag_value({"schema": {"type": "number"}}, "abc") == "abc"
 
 
+def test_resolve_json_body_schema_edge_cases():
+    """Non-dict media / schema blocks resolve to ``None`` instead of crashing."""
+
+    from oed_cli.dynamic import _resolve_json_body_schema
+
+    assert _resolve_json_body_schema({"content": {}}, SAMPLE_SPEC) is None
+    assert _resolve_json_body_schema(
+        {"content": {"application/json": {"schema": "not-a-dict"}}}, SAMPLE_SPEC
+    ) is None
+
+
+def test_operations_for_one_shot_helper(patched):
+    """``operations_for`` resolves, fetches, and bakes the runtime base_url in."""
+
+    from oed_cli.dynamic import operations_for
+
+    svc, table, spec = operations_for("software-package-server")
+    assert svc.service_name == "software-package-server"
+    assert spec is SAMPLE_SPEC
+    op = table["API_getSoftwarePackage"]
+    assert op.base_url == "https://apig.osinfra.cn"
+
+
+def test_body_field_summary_edge_cases():
+    """Non-dict schema returns [] and non-dict properties are skipped."""
+
+    from oed_cli.invoke import _body_field_summary
+
+    assert _body_field_summary(None) == []
+    out = _body_field_summary(
+        {
+            "properties": {
+                "bad": "not-a-dict",
+                "good": {"type": "string", "description": "a description"},
+                "plain": {"type": "integer"},
+            }
+        }
+    )
+    assert [e["name"] for e in out] == ["good", "plain"]
+    assert out[0]["description"] == "a description"
+    assert "description" not in out[1]
+
+
+def test_describe_operation_help_with_body(patched):
+    """Operation help for a POST with a body exposes params + body field summary."""
+
+    from oed_cli.dynamic import operations_table
+    from oed_cli.invoke import describe_operation_help
+
+    svc = patched["feed"].services[0]
+    op = operations_table(SAMPLE_SPEC, svc.service_name)["API_applyNewSoftwarePackage"]
+    doc = describe_operation_help(op, svc)
+    assert doc["ok"] is True
+    assert doc["usage"] and doc["examples"]
+    assert doc["body_required"] is True
+    assert doc["parameters"] == []
+    assert doc["body_required_fields"] == []
+    assert doc["body_schema"] == {"type": "object"}
+
+
+def test_dispatch_dynamic_help_legacy_wrapper(patched, capsys):
+    """Legacy ``_dispatch_dynamic_help`` resolves + collects and lists operations."""
+
+    from oed_cli.main import _dispatch_dynamic_help
+
+    code = _dispatch_dynamic_help("software-package-server", [])
+    out = capsys.readouterr()
+    assert code == 0 and "listSoftwarePackages" in (out.out + out.err)
+
+
 # ---------- main() dispatch edges ----------
 
 
 def test_main_dispatch_comprehensive(patched, monkeypatch, capsys):
     """Sweep main dispatch surfaces: reserved routes, --key=value, parse-error,
     dry-run short-circuit, service-only listing, and call_operation errors."""
-    from oed_cli import main as oed_main
     from oed_cli import http as http_mod
+    from oed_cli import main as oed_main
     from oed_cli.errors import NetworkError
 
     monkeypatch.setenv("OED_COMMUNITY", "openeuler")
@@ -715,8 +878,13 @@ def test_main_dispatch_comprehensive(patched, monkeypatch, capsys):
     code = oed_main.main(["software-package-server", "API_getSoftwarePackage", "--id", "1"])
     out = capsys.readouterr()
     assert code == 2 and "network_error" in (out.out + out.err)
-    monkeypatch.setattr(http_mod, "get_request",
-        lambda *a, **k: type("R", (), {"status_code": 503, "text": "", "content": b"", "headers": {}})())
+    monkeypatch.setattr(
+        http_mod,
+        "get_request",
+        lambda *a, **k: type(
+            "R", (), {"status_code": 503, "text": "", "content": b"", "headers": {}}
+        )(),
+    )
     code = oed_main.main(["software-package-server", "API_getSoftwarePackage", "--id", "1"])
     assert code == 3
 
@@ -727,7 +895,7 @@ def test_main_dispatch_comprehensive(patched, monkeypatch, capsys):
 def test_resolve_user_agent_precedence(monkeypatch):
     """Explicit arg > ``OED_USER_AGENT`` env > bundled default; empty string falls through."""
 
-    from oed_cli.http import _resolve_user_agent, DEFAULT_USER_AGENT
+    from oed_cli.http import DEFAULT_USER_AGENT, _resolve_user_agent
 
     monkeypatch.delenv("OED_USER_AGENT", raising=False)
     assert _resolve_user_agent(None) == DEFAULT_USER_AGENT
@@ -793,16 +961,21 @@ def test_dispatch_user_agent_flag_flows_to_http(patched, monkeypatch, capsys):
     assert patched["captured"]["user_agent"] == "browser-mock/9.9"
 
 
-def test_dispatch_user_agent_env_only(patched, monkeypatch):
-    """No flag, only env → env value is forwarded."""
+def test_dispatch_user_agent_env_only(patched, monkeypatch, capsys):
+    """No --user-agent flag, only OED_USER_AGENT env → env value lands in the
+    outbound User-Agent header (resolved downstream in the HTTP layer)."""
 
     from oed_cli import main as oed_main
 
     monkeypatch.setenv("OED_COMMUNITY", "openeuler")
     monkeypatch.setenv("OED_USER_AGENT", "env-only/3.0")
-    code = oed_main.main(["software-package-server", "API_getSoftwarePackage", "--id", "1"])
+    code = oed_main.main([
+        "software-package-server", "API_getSoftwarePackage",
+        "--id", "1", "--dry-run",
+    ])
     assert code == 0
-    assert patched["captured"]["user_agent"] == "env-only/3.0"
+    out = capsys.readouterr().out
+    assert '"User-Agent": "env-only/3.0"' in out
 
 
 def test_dispatch_user_agent_flag_overrides_env(patched, monkeypatch):

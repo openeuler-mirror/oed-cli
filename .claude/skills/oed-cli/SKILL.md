@@ -96,6 +96,8 @@ If spec wasn't published upstream → exit `4`, `error="spec_missing"`.
 If `--params` / `--json` is malformed → exit `1`, `error="invalid_json"`.
 If an unknown flag is passed → exit `1`, `error="unknown_flag"` (hint lists
 declared params).
+If an `ag` operation needs a token and none is stored → exit `1`,
+`error="ag_token_missing"` (hint: `oed ag login`, or `--access-token <pat>`).
 If the upstream returns non-2xx → exit `3`.
 
 ## Command surface (v0.2)
@@ -110,6 +112,12 @@ oed schema <service>                     # full OpenAPI 3.x doc
 oed schema <service>.<method>            # one operation by operationId
 oed cache {show,clear,refresh}
 oed completion {bash,zsh,fish,powershell}
+
+# AtomGit (ag) token management (v0.4)
+oed ag login                             # store an AtomGit personal access token
+oed ag login --token <pat> --no-verify   # non-interactive, skip validation
+oed ag login --status                    # report whether a token is configured
+oed ag logout                            # delete the stored token
 
 # Dynamic dispatch — the killer feature
 oed <service>                            # list every operation
@@ -148,6 +156,26 @@ registers the prefix-less form as a lookup alias — both forms work, the
 user-facing form is what shows up in `--help`, usage examples and call
 output. The raw spec form is preserved under `operation_id_raw` for
 traceability.
+
+### AtomGit (`ag`) authentication
+
+`ag` operations authenticate via the `access_token` query parameter declared
+on their spec. `oed ag login` stores a personal access token once, and every
+`oed ag <operation>` call fills `access_token` automatically:
+
+```bash
+oed ag login                        # interactive; prompts, never echoes the token
+oed ag login --status               # is a token configured? (no network)
+oed ag login --token <pat>          # non-interactive; validates against AtomGit
+oed ag login --token <pat> --no-verify  # skip validation (offline / CI)
+oed ag logout                       # forget the token
+```
+
+- An explicit `--access-token <pat>` always wins over the stored token.
+- `--dry-run` / request echo views mask the token as `<stored>`; the real
+  value only goes out on the wire.
+- Windows stores the token DPAPI-encrypted for the current user; other
+  platforms use base64 (obfuscation, not encryption).
 
 ### URL construction
 
@@ -215,7 +243,7 @@ section applies to you — the rest of this file is for *callers* of `oed`.
 ```bash
 pip install -e ".[dev]"     # pytest + ruff
 ruff check src tests        # lint (E,F,W,I,B,UP,SIM, line-length=100)
-pytest -q                   # 41 tests, monkeypatch discovery, < 1s
+pytest -q                   # 58 tests, monkeypatch discovery, < 1s
 oed --version               # confirm entry point works
 ```
 
@@ -233,10 +261,11 @@ file. A failure is blocking — fix it before continuing. There is no
 | OpenAPI → Operation parsing             | `src/oed_cli/dynamic.py`     |
 | a real HTTP call / output shape         | `src/oed_cli/invoke.py`      |
 | HTTP client behaviour (retries, etc.)   | `src/oed_cli/http.py`        |
+| token storage / `ag` login-logout       | `src/oed_cli/auth.py`        |
 | a new exit code or error kind           | `src/oed_cli/errors.py`      |
 | a test                                  | `tests/test_<area>.py`       |
 
-Add a new `.py` file to `src/oed_cli/` only as a last resort — the seven
+Add a new `.py` file to `src/oed_cli/` only as a last resort — the eight
 modules above have stable roles.
 
 ### Don'ts (see CLAUDE.md for the full list)

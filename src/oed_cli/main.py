@@ -34,6 +34,7 @@ from collections.abc import Sequence
 
 import click
 
+from .auth import clear_token, read_token, store_token, token_info, token_path
 from .cli import cli as click_cli
 from .dynamic import (
     coerce_flag_value,
@@ -47,7 +48,7 @@ from .dynamic import (
     resolve_runtime_gateway,
     resolve_service_by_name,
 )
-from .errors import OedError
+from .errors import NotFoundError, OedError
 from .invoke import (
     call_operation,
     describe_operation_help,
@@ -200,6 +201,217 @@ def _merge_params(
     return params, body, 0
 
 
+_AG_LOGIN_INSTRUCTIONS = (
+    "AtomGit login\n"
+    "=============\n"
+    "1. Open https://atomgit.com and sign in.\n"
+    "2. Create a personal access token under Settings (https://atomgit.com/setting/token-classic/create) \n"
+    "3. Paste the token below. It is stored encrypted for this Windows/Linux user "
+    "and is never echoed back.\n"
+)
+
+
+def _ag_login_help() -> int:
+    click.echo(
+        json.dumps(
+            {
+                "ok": True,
+                "help_for": "ag login",
+                "usage": "oed ag login [--token <pat>] [--no-verify] [--status]",
+                "flags": {
+                    "--token": "provide the AtomGit personal access token non-interactively",
+                    "--no-verify": "skip validating the token against AtomGit before storing",
+                    "--status": "report whether a token is configured, without prompting",
+                },
+                "examples": [
+                    "oed ag login",
+                    "oed ag login --token <pat> --no-verify",
+                    "oed ag login --status",
+                    "oed ag logout",
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _ag_login(raw_flags: dict[str, str], bool_flags: set[str], help_requested: bool) -> int:
+    """Configure the AtomGit access token used by ``oed ag`` requests."""
+
+    if help_requested:
+        return _ag_login_help()
+
+    if "status" in bool_flags:
+        return _ag_status()
+
+    token = raw_flags.pop("token", None)
+    if token == "":
+        click.echo(
+            json.dumps(
+                {
+                    "ok": False,
+                    "code": 1,
+                    "error": "missing_flag_value",
+                    "message": "--token requires a non-empty value",
+                },
+                ensure_ascii=False,
+            ),
+            err=True,
+        )
+        return 1
+
+    if token is None:
+        click.echo(_AG_LOGIN_INSTRUCTIONS, err=True)
+        try:
+            token = click.prompt("AtomGit personal access token", hide_input=True, err=True)
+        except click.Abort:
+            click.echo(
+                json.dumps(
+                    {"ok": False, "code": 1, "error": "aborted", "message": "login cancelled"},
+                    ensure_ascii=False,
+                ),
+                err=True,
+            )
+            return 1
+
+    token = token.strip()
+    if not token:
+        click.echo(
+            json.dumps(
+                {
+                    "ok": False,
+                    "code": 1,
+                    "error": "missing_token",
+                    "message": "no token provided",
+                },
+                ensure_ascii=False,
+            ),
+            err=True,
+        )
+        return 1
+
+    if "no-verify" not in bool_flags:
+        verify_code = _verify_ag_token(token)
+        if verify_code != 0:
+            return verify_code
+
+    path = store_token(token)
+    click.echo(
+        json.dumps(
+            {
+                "ok": True,
+                "service": "ag",
+                "configured": True,
+                "token_path": str(path),
+                "note": "token stored locally; it is never echoed back",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _verify_ag_token(token: str) -> int:
+    """Best-effort validation: hit an authenticated ``ag`` endpoint with ``token``.
+
+    Returns ``0`` when the token looks valid (or validation is unavailable for
+    the current spec); a nonzero exit code when the token was rejected or the
+    check itself failed.
+    """
+
+    try:
+        service = resolve_service_by_name("ag")
+        spec = fetch_service_spec(service)
+        base_url = resolve_runtime_gateway(service)
+        table = operations_table(spec, service.service_name, base_url=base_url)
+        op = resolve_operation(table, "listAuthenticatedUserIssues")
+    except NotFoundError:
+        return 0
+    except OedError as exc:
+        click.echo(json.dumps(exc.to_dict(), ensure_ascii=False), err=True)
+        return exc.code
+
+    try:
+        result = call_operation(op, params={"access_token": token}, include_request=False)
+    except OedError as exc:
+        click.echo(json.dumps(exc.to_dict(), ensure_ascii=False), err=True)
+        return exc.code
+
+    if not result.get("ok"):
+        click.echo(
+            json.dumps(
+                {
+                    "ok": False,
+                    "code": 1,
+                    "error": "invalid_token",
+                    "message": "AtomGit rejected the token",
+                    "hint": (
+                        "Check the token is active, or create a new one at "
+                        "AtomGit > Settings > Access Tokens, then run `oed ag login` again."
+                    ),
+                },
+                ensure_ascii=False,
+            ),
+            err=True,
+        )
+        return 1
+    return 0
+
+
+def _ag_status() -> int:
+    """Report whether a token is configured, without prompting or network access."""
+
+    configured = read_token("ag") is not None
+    meta = token_info("ag") or {}
+    click.echo(
+        json.dumps(
+            {
+                "ok": True,
+                "service": "ag",
+                "configured": configured,
+                "token_path": str(token_path("ag")),
+                "encryption": meta.get("encryption"),
+                "created_at": meta.get("created_at"),
+                "token": None,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _ag_logout(help_requested: bool) -> int:
+    """Delete the stored ``ag`` token."""
+
+    if help_requested:
+        click.echo(
+            json.dumps(
+                {
+                    "ok": True,
+                    "help_for": "ag logout",
+                    "usage": "oed ag logout",
+                    "examples": ["oed ag logout"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+    was_set = clear_token("ag")
+    click.echo(
+        json.dumps(
+            {"ok": True, "service": "ag", "configured": False, "was_set": was_set},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def _dispatch_dynamic(argv: Sequence[str]) -> int:
     """Parse ``oed <service> [<method>] [flags]`` and run the resolved call."""
 
@@ -218,6 +430,26 @@ def _dispatch_dynamic(argv: Sequence[str]) -> int:
 
     user_agent = raw_flags.pop("user-agent", None)
     method = positional[0] if positional else None
+
+    if service_name == "ag" and method in ("login", "logout"):
+        if len(positional) > 1:
+            click.echo(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "code": 1,
+                        "error": "too_many_positional",
+                        "message": "`oed ag login` takes flags, not extra positionals",
+                        "extra_args": positional[1:],
+                    },
+                    ensure_ascii=False,
+                ),
+                err=True,
+            )
+            return 1
+        if method == "login":
+            return _ag_login(raw_flags, bool_flags, help_requested)
+        return _ag_logout(help_requested)
 
     try:
         service = resolve_service_by_name(service_name)

@@ -26,6 +26,7 @@ src/oed_cli/
   discovery.py  # discovery feed + 缓存（10 分钟 TTL）
   dynamic.py    # OpenAPI paths → OperationsTable + per-param flag 推导
   invoke.py     # 实际调用：拼 URL、发请求、封 JSON 输出
+  auth.py       # 本地 token 存储（DPAPI/base64）+ ag 凭证自动注入
   http.py       # WAF-safe HTTP client
   errors.py     # OedError 体系 + 退出码 0/1/2/3/4
 
@@ -33,6 +34,8 @@ tests/
   test_cli.py      # 保留命令 + --help 装饰
   test_dynamic.py  # 调度 + per-param flag + API_ 前缀剥离
   test_discovery.py
+  test_invoke.py   # ag access_token 自动注入
+  test_auth.py     # token 存储（DPAPI/base64）
 
 docs/
   cli-design.md    # 设计文档（事实之源 — 改动要先改这里）
@@ -62,7 +65,7 @@ context/
 ```bash
 pip install -e ".[dev]"     # 装 pytest + ruff
 ruff check src tests        # lint
-pytest -q                   # 41 个测试，monkeypatch discovery，< 1s 全过
+pytest -q                   # 58 个测试，monkeypatch discovery，< 1s 全过
 oed --version               # 确认 entry point 工作
 ```
 
@@ -133,9 +136,10 @@ oed --version               # 确认 entry point 工作
 | 新 OpenAPI→Operation 转换规则 | `dynamic.py` |
 | 新调用 / 输出包装规则 | `invoke.py` |
 | 新 HTTP 客户端行为（如重试） | `http.py` |
+| 新 token 存储 / `ag login` 子命令 | `auth.py` |
 | 新退出码 / 错误类型 | `errors.py`（先看现有四个能不能复用） |
 
-新增 .py 文件到 `src/oed_cli/` 是**最后手段** —— 优先扩展现有七个模块。
+新增 .py 文件到 `src/oed_cli/` 是**最后手段** —— 优先扩展现有八个模块。
 
 ---
 
@@ -147,7 +151,7 @@ oed --version               # 确认 entry point 工作
 - ❌ 改 git config（`user.email` / `user.name` / `core.*` 等）。
 - ❌ hardcode 真实 endpoint 到代码里（host 必须从 `ServiceMeta.base_url` 经 `resolve_runtime_gateway` 读，**不**写常量、不**写环境变量）。
 - ❌ 把新依赖加到 `[project.dependencies]`（除非用户明确说）—— 加到 `[project.optional-dependencies].dev`。
-- ❌ 新增 `.py` 文件到 `src/oed_cli/` 除非确实必要 —— 保持七个模块的边界。
+- ❌ 新增 `.py` 文件到 `src/oed_cli/` 除非确实必要 —— 保持八个模块的边界。
 - ❌ 改 `docs/cli-design.md` 后不同步 `README.md` 和 SKILL.md。
 - ❌ 自动 commit —— 改完报告用户，等用户说「commit」。
 - ❌ 跳过 hook（用 `--no-verify` 或绕过 PostToolUse）—— 这是 agent 守规矩的红线测试。
@@ -157,7 +161,7 @@ oed --version               # 确认 entry point 工作
 ## 自检清单（提交前）
 
 - [ ] `ruff check src tests` 通过
-- [ ] `pytest -q` 41 个测试全过
+- [ ] `pytest -q` 58 个测试全过
 - [ ] `docs/cli-design.md` 反映了本次代码改动（如有）
 - [ ] `README.md` 命令示例与新行为一致（如有）
 - [ ] `.claude/skills/oed-cli/SKILL.md` 工作流反映新能力（如有）
