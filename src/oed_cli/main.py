@@ -50,6 +50,7 @@ from .dynamic import (
 )
 from .errors import NotFoundError, OedError
 from .invoke import (
+    GATEWAY_MANAGED_PARAMS,
     call_operation,
     describe_operation_help,
     describe_service,
@@ -184,6 +185,16 @@ def _merge_params(
         if flag_key in _VALUE_FLAGS or flag_key in _BOOL_FLAGS:
             continue
         if flag_key not in declared:
+            if flag_key.lower() in {p.lower() for p in GATEWAY_MANAGED_PARAMS}:
+                raise OedError(
+                    f"--{flag_key} is injected by the gateway for forum calls",
+                    kind="gateway_managed_param",
+                    hint=(
+                        "Do not pass Api-Key / Api-Username — oed auto-fills "
+                        "the placeholder headers on every forum call and the "
+                        "gateway converts them."
+                    ),
+                )
             raise OedError(
                 f"unknown flag: --{flag_key}",
                 kind="unknown_flag",
@@ -205,7 +216,8 @@ _AG_LOGIN_INSTRUCTIONS = (
     "AtomGit login\n"
     "=============\n"
     "1. Open https://atomgit.com and sign in.\n"
-    "2. Create a personal access token under Settings (https://atomgit.com/setting/token-classic/create) \n"
+    "2. Create a personal access token under Settings "
+    "(https://atomgit.com/setting/token-classic/create)\n"
     "3. Paste the token below. It is stored encrypted for this Windows/Linux user "
     "and is never echoed back.\n"
 )

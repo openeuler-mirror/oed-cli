@@ -127,6 +127,36 @@ def _render_response(resp: httpx.Response) -> Any:
         }
 
 
+# Api-Key / Api-Username are Discourse auth headers that the gateway (APIG)
+# injects during its header conversion. oed must neither send them nor let
+# callers supply them — surfacing them makes agents hunt for credentials that
+# are already handled upstream.
+GATEWAY_MANAGED_PARAMS = frozenset({"Api-Key", "Api-Username"})
+
+
+def _reject_gateway_managed_params(params: dict[str, Any] | None) -> None:
+    """Refuse Api-Key / Api-Username supplied by the caller.
+
+    ``forum`` authenticates at the gateway layer; the spec still declares
+    these as required header params, so agents reading the raw spec keep
+    trying to "fill" them. An explicit error is the strongest signal that
+    the value is injected upstream and must not be supplied.
+    """
+
+    supplied = sorted(k for k in (params or {}) if k in GATEWAY_MANAGED_PARAMS)
+    if not supplied:
+        return
+    raise UserError(
+        f"{', '.join(supplied)} are injected by the gateway and must not be supplied",
+        kind="gateway_managed_param",
+        hint=(
+            "Api-Key / Api-Username are auto-filled by oed as placeholder "
+            "headers on every forum call, then converted by the gateway — "
+            "do not supply them."
+        ),
+    )
+
+
 def _inject_ag_token(op: Operation, query_params: dict[str, Any]) -> None:
     """Auto-fill the ``access_token`` query param for AtomGit operations.
 
@@ -154,6 +184,32 @@ def _inject_ag_token(op: Operation, query_params: dict[str, Any]) -> None:
         )
 
 
+def _reject_body_fields_via_params(op: Operation, unused: list[str]) -> None:
+    """Turn a common misuse into an actionable error instead of an opaque 400.
+
+    ``--params`` only carries query/path parameters. Body fields passed that
+    way land in ``unused`` and the request goes out with ``body: null``, which
+    the gateway rejects with a generic 400. When those keys line up with the
+    operation's request-body schema, raise a hint that names the right flag.
+    """
+
+    if op.body_schema is None or not unused:
+        return
+    body_props = set(op.body_schema.get("properties") or {})
+    body_keys = sorted(k for k in unused if k in body_props)
+    if not body_keys:
+        return
+    raise UserError(
+        f"{', '.join(body_keys)} match request-body fields for this operation "
+        "but no body was sent",
+        kind="body_fields_via_params",
+        hint=(
+            "`--params` only covers query/path parameters; request bodies go "
+            f"through `--json '{{...}}'`. See `oed <service> {op.display_name} --help`."
+        ),
+    )
+
+
 def call_operation(
     op: Operation,
     *,
@@ -175,7 +231,10 @@ def call_operation(
     """
 
     path_params, query_params, unused = _select_params(op, params)
+    _reject_gateway_managed_params(params)
     query_params = coerce_param_types(op, query_params)
+    if body is None:
+        _reject_body_fields_via_params(op, unused)
 
     filled_path, missing = _fill_path(op.path, path_params)
     if missing:
@@ -189,8 +248,11 @@ def call_operation(
     _inject_ag_token(op, query_params)
     url = f"{op.base_url}{filled_path}"
 
-    # Discourse (forum) authenticates via Api-Key/Api-Username; inert sentinel
-    # until login lands, so the request shape stays visible without leaking a real credential.
+    # Discourse (forum) authenticates via Api-Key / Api-Username headers. oed
+    # fills them with the gateway's expected placeholder — the APIG header
+    # conversion swaps them for the real credentials at the edge, so oed MUST
+    # send them or the gateway rejects the call. Callers never supply values
+    # themselves; _reject_gateway_managed_params enforces that.
     api_headers: dict[str, str] = {}
     if op.service_name == "forum":
         api_headers = {"Api-Key": "oed-placeholder", "Api-Username": "oed-placeholder"}
@@ -283,9 +345,10 @@ def describe_operation(op: Operation) -> dict[str, Any]:
         "description": op.description,
         "path_params": [p["name"] for p in op.path_params],
         "query_params": [p["name"] for p in op.query_params],
+        "has_body": op.body_schema is not None,
         "body_required": op.body_required,
     }
-    if op.body_required:
+    if op.body_schema is not None:
         out["body_required_fields"] = _body_field_summary(op.body_schema)
     if op.display_name != op.operation_id:
         out["operation_id_raw"] = op.operation_id
@@ -346,6 +409,7 @@ def describe_operation_help(op: Operation, service) -> dict[str, Any]:
         "url": f"{op.base_url}{rendered}",
         "summary": op.summary,
         "description": op.description,
+        "has_body": op.body_schema is not None,
         "body_required": op.body_required,
         "parameters": params,
         "usage": _usage_example(op),
@@ -353,7 +417,7 @@ def describe_operation_help(op: Operation, service) -> dict[str, Any]:
     }
     if name != op.operation_id:
         out["operation_id_raw"] = op.operation_id
-    if op.body_required:
+    if op.body_schema is not None:
         out["body_required_fields"] = _body_field_summary(op.body_schema)
         out["body_schema"] = op.body_schema
     return out
@@ -368,17 +432,25 @@ def _usage_example(op: Operation) -> str:
             continue
         flag = f"--{to_flag(p['name'])} <value>"
         parts.append(flag if p.get("required") else f"[{flag}]")
-    if op.body_required:
+    if op.body_schema is not None:
         parts.append("--json '{...}'")
     parts.append("[--dry-run]")
     return " ".join(parts)
 
 
 def _usage_examples(op: Operation) -> list[str]:
-    """A couple of ready-to-paste example commands."""
+    """A couple of ready-to-paste example commands.
+
+    The ``--params`` example only makes sense when the operation declares
+    query/path params. A body-only operation gets a ``--json`` example
+    instead — otherwise agents get steered into sending body fields via
+    ``--params``, which silently drops them (``--params`` never carries a
+    request body).
+    """
 
     name = op.display_name
     examples: list[str] = []
+    has_params = any(p.get("in") in {"query", "path"} for p in op.parameters)
     required = [
         p
         for p in op.parameters
@@ -390,7 +462,12 @@ def _usage_examples(op: Operation) -> list[str]:
         cmd += "".join(f" --{to_flag(p['name'])} <value>" for p in required)
         cmd += " [--dry-run]"
         examples.append(cmd)
-    examples.append(f"oed <service> {name} --params '{name}_PARAMS_JSON'")
+    if op.body_schema is not None:
+        examples.append(f"oed <service> {name} --json '{{\"...\"}}'")
+    if has_params:
+        examples.append(f"oed <service> {name} --params '{name}_PARAMS_JSON'")
+    if not examples:
+        examples.append(f"oed <service> {name} [--dry-run]")
     return examples
 
 

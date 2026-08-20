@@ -63,7 +63,7 @@ pip install -e .
 Verify:
 
 ```bash
-oed --version       # → oed, version 0.1.5
+oed --version       # → oed, version 0.2.3
 ```
 
 ---
@@ -191,23 +191,27 @@ oed cve --help | jq '.operations | length'
 
 ```bash
 # Dry-run — preview the request without hitting the network
-oed cve getSecurityNoticeByCveId --cve-id 1 --dry-run
+oed cve getSecurityNoticeByCveId --cve-id CVE-2019-10082 --dry-run
 
-# Path placeholder — `--id` is a path param, auto-substituted into the URL
-oed software-package-server getSoftwarePackage --id 12345 --language zh_CN
+# Date-filtered query — pagination comes back as total/page/size
+oed meeting listMeetings --date 2026-07-29
+# → response.data: [ { "topic": "安全sig例会", "group_name": "security-committee",
+#                     "date": "2026-07-29", "start": "16:00", "end": "18:00",
+#                     "join_url": "https://meeting.huaweicloud.com:36443/#/j/985661561", ... } ]
 
-# Integer / number flags auto-coerce from string
-oed software-package-server listSoftwarePackages --page-num 1 --count-per-page 5
+# Forum — Discourse `/latest.json`;
+oed forum listLatestTopics --per-page 2
+# → response.topic_list.topics: [ { "title": "《openEuler社区论坛使用指南&规则》",
+#                                   "posts_count": 12, "created_at": "2023-01-16T07:53:30.163Z" }, ... ]
 
-# POST with JSON body — Content-Type auto-set
-oed software-package-server applyNewSoftwarePackage \
-  --json '{"pkg_name":"demo","version":"1.0.0"}'
+# Search — POST JSON body; `keyword` + `lang` are required, pageSize must be 6-49
+oed search multisearchDocByKeyword \
+  --json '{"keyword":"软件源安装速度慢怎么办","lang":"zh","page":1,"pageSize":10}'
+# → response.obj.records: [ { "title": "<span>软件下载慢问题</span>",
+#                             "path": "https://eur.openeuler.openatom.cn/coprs/",
+#                             "type": "service", "lang": "zh" }, ... ]
 
-# Bulk JSON for scripts — `--params` is the escape hatch when you have many fields
-oed cve getSecurityNoticeByCveId --params '{"cveId":"1"}'
 
-# Raw OpenAPI spec, for debugging
-oed schema cve | jq '.paths | keys'
 ```
 
 ---
@@ -355,6 +359,8 @@ to eyeball `oed services` output every week.
 | Chinese output garbled on Windows                  | console codepage not UTF-8     | `chcp 65001`, or pipe `\| python`, or `PYTHONIOENCODING=utf-8 oed …` |
 | `error="spec_missing"` (exit 4) on a known service | upstream hasn't published the spec yet | wait for the gateway-side OpenAPI yaml; nothing to do on the oed side |
 | `error="ag_token_missing"` on an `ag` call | operation needs a token, none stored | `oed ag login` (or pass `--access-token <pat>`) |
+| `error="body_fields_via_params"` (exit 1) on a POST | body fields were passed via `--params` (which only covers query/path) | resend the fields with `--json '{...}'` — `oed <service> <op> --help` lists the body schema |
+| `error="gateway_managed_param"` (exit 1) on a `forum` call | `Api-Key` / `Api-Username` were passed (`--api-key` or `--params`) | drop them — `oed` auto-fills both placeholder headers on every `forum` call and the gateway converts them |
 | A `cve` call exits 2 (`waf_block`)      | spec points to a `.test.osinfra.cn` host | already handled — `oed` reads `base_url` from the discovery feed (no fallback) and ignores the spec's `x-apigateway-backend.httpEndpoints.address` for the host |
 
 ### Offline mode

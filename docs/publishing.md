@@ -35,8 +35,8 @@ $env:TWINE_PASSWORD = "pypi-..."
 
 | 位置 | 字段 | 谁用它 |
 |---|---|---|
-| `pyproject.toml:7` | `version = "0.1.5"` | wheel 文件名 + PyPI 项目页版本 |
-| `src/oed_cli/__init__.py:5` | `__version__ = "0.1.5"` | `oed --version` 的输出、`http.py` 的 `User-Agent` 头(`oed/0.1.5 (+...)`)|
+| `pyproject.toml:7` | `version = "0.2.3"` | wheel 文件名 + PyPI 项目页版本 |
+| `src/oed_cli/__init__.py:5` | `__version__ = "0.2.3"` | `oed --version` 的输出、`http.py` 的 `User-Agent` 头(`oed/0.2.3 (+...)`)|
 
 ```diff
 --- a/pyproject.toml
@@ -44,30 +44,30 @@ $env:TWINE_PASSWORD = "pypi-..."
 @@
  [project]
  name = "oed-cli"
--version = "0.1.5"
-+version = "0.1.5"
+-version = "0.2.3"
++version = "0.2.3"
 
 --- a/src/oed_cli/__init__.py
 +++ b/src/oed_cli/__init__.py
 @@
 -from __future__ import annotations
 -
--__version__ = "0.1.5"
+-__version__ = "0.2.3"
 -__all__ = ["__version__"]
 +from __future__ import annotations
 +
-+__version__ = "0.1.5"
++__version__ = "0.2.3"
 +__all__ = ["__version__"]
 ```
 
 或者一行命令搞定:
 
 ```bash
-sed -i 's/version = "0.1.5"/version = "0.1.5"/' pyproject.toml
-sed -i 's/__version__ = "0.1.5"/__version__ = "0.1.5"/' src/oed_cli/__init__.py
+sed -i 's/version = "0.2.3"/version = "0.2.3"/' pyproject.toml
+sed -i 's/__version__ = "0.2.3"/__version__ = "0.2.3"/' src/oed_cli/__init__.py
 ```
 
-> ⚠️ 改完第二处后,User-Agent 会变成 `oed/0.1.5 ...`。CloudWAF 跟 UA 没有强耦合(就是 `http.py:30` 那条),但**如果你之前因为 WAF 拦了默认 UA 而改过 `OED_USER_AGENT` 环境变量**,那是另一回事,跟这里无关。
+> ⚠️ 改完第二处后,User-Agent 会变成 `oed/0.2.3 ...`。CloudWAF 跟 UA 没有强耦合(就是 `http.py:30` 那条),但**如果你之前因为 WAF 拦了默认 UA 而改过 `OED_USER_AGENT` 环境变量**,那是另一回事,跟这里无关。
 
 ---
 
@@ -106,11 +106,11 @@ python -m build
 成功的话 `dist/` 下出现两个文件:
 
 ```
-dist/oed_cli-0.1.5-py3-none-any.whl
-dist/oed_cli-0.1.5.tar.gz
+dist/oed_cli-0.2.3-py3-none-any.whl
+dist/oed_cli-0.2.3.tar.gz
 ```
 
-> 🚨 **文件名中间的 `0.1.5` 改成新版本号了么?** 没改就是没生效 —— 见第 7 节"常见问题 2"。
+> 🚨 **文件名中间的 `0.2.3` 改成新版本号了么?** 没改就是没生效 —— 见第 7 节"常见问题 2"。
 
 ---
 
@@ -125,8 +125,8 @@ twine upload --repository testpypi dist/*
 ```bash
 pip install --index-url https://test.pypi.org/simple/ \
             --extra-index-url https://pypi.org/simple/ \
-            oed-cli==0.1.5
-oed --version    # 应该输出: oed, version 0.1.5
+            oed-cli==0.2.3
+oed --version    # 应该输出: oed, version 0.2.3
 ```
 
 `--extra-index-url` 兜底拉普通 PyPI 上的依赖(`click`、`httpx`),因为 TestPyPI 没有这些。
@@ -185,7 +185,7 @@ PyPI 不允许覆盖已发版本。解决:
 ### (4) 上传成功但 `pip install` 拉不到
 
 - 检查 `pip` 用的是哪个 index:`pip config list`,可能被 `.pip/pip.conf` 锁住
-- 直接拉: `pip install --index-url https://pypi.org/simple/ oed-cli==0.1.5`
+- 直接拉: `pip install --index-url https://pypi.org/simple/ oed-cli==0.2.3`
 
 ### (5) wheel 装好但 `oed` 命令找不到
 

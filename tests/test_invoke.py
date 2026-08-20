@@ -198,3 +198,100 @@ def test_ag_dry_run_masks_stored_token(captured):
     dry = call_operation(op, dry_run=True)
     assert dry["request"]["query"]["access_token"] == "<stored>"
     assert "super-secret-token" not in str(dry)
+
+
+# ── request-body visibility & the --params-vs--json trap ────────────────────
+# Regression for the forum createTopicPostPM incident: the gateway spec marks
+# body fields required at the *schema* level but never sets requestBody.required,
+# so body_required=False and old help hid the body entirely while still showing
+# a --params example — which silently drops body fields (body: null → 400).
+
+BODY_SPEC = {
+    "openapi": "3.0.3",
+    "info": {"title": "forum", "version": "1.0.0"},
+    "paths": {
+        "/posts": {
+            "post": {
+                "summary": "create a topic post",
+                "operationId": "createTopicPostPM",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["raw"],
+                                "properties": {
+                                    "title": {"type": "string"},
+                                    "raw": {"type": "string"},
+                                },
+                            }
+                        }
+                    }
+                },
+            }
+        },
+        "/plain": {
+            "get": {"summary": "no params, no body", "operationId": "getPlain", "parameters": []},
+        },
+    },
+}
+
+
+def _body_op(name: str):
+    from oed_cli.dynamic import operations_table
+
+    return operations_table(BODY_SPEC, "forum", base_url="https://apig.osinfra.cn")[name]
+
+
+def test_help_exposes_body_when_not_marked_required():
+    """A body present but not marked requestBody.required still surfaces in help."""
+    from types import SimpleNamespace
+
+    from oed_cli.invoke import describe_operation_help
+
+    op = _body_op("createTopicPostPM")
+    svc = SimpleNamespace(name="openeuler/forum", service_name="forum", title="forum")
+    doc = describe_operation_help(op, svc)
+    assert doc["has_body"] is True
+    assert doc["body_required"] is False
+    fields = {f["name"]: f for f in doc["body_required_fields"]}
+    assert set(fields) == {"title", "raw"}
+    assert fields["raw"]["required"] is True
+    assert fields["title"]["required"] is False
+    assert "title" in doc["body_schema"]["properties"]
+    assert "--json" in doc["usage"]
+
+
+def test_body_only_op_usage_uses_json_not_params():
+    from oed_cli.invoke import _usage_examples
+
+    examples = _usage_examples(_body_op("createTopicPostPM"))
+    assert examples and "--json" in examples[0]
+    assert all("--params" not in ex for ex in examples)
+
+
+def test_no_params_no_body_usage_is_dry_run():
+    from oed_cli.invoke import _usage_example, _usage_examples
+
+    op = _body_op("getPlain")
+    assert _usage_example(op) == "oed <service> getPlain [--dry-run]"
+    assert _usage_examples(op) == ["oed <service> getPlain [--dry-run]"]
+
+
+def test_body_fields_via_params_raises_hint(captured):
+    from oed_cli.errors import UserError
+    from oed_cli.invoke import call_operation
+
+    op = _body_op("createTopicPostPM")
+    with pytest.raises(UserError) as exc:
+        call_operation(op, params={"title": "hi", "raw": "body"})
+    assert exc.value.kind == "body_fields_via_params"
+    assert "--json" in exc.value.hint
+
+
+def test_body_fields_via_params_ok_when_json_passed(captured):
+    from oed_cli.invoke import call_operation
+
+    op = _body_op("createTopicPostPM")
+    call_operation(op, params={"title": "hi"}, body={"raw": "body"})
+    assert captured["body"] == {"raw": "body"}
