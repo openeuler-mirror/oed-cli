@@ -83,15 +83,15 @@ oed software-package-server listSoftwarePackages \
   --count 100 --page-all | jq -c '.'
 ```
 
-> **v0.2 已实现**：`oed <service> [<method>] [--params ...] [--json ...] [--dry-run]` 全部可用，包括 path 占位符（如 `--id 12345` → 自动填到 `/api/v1/softwarepkg/{id}`）。**v0.2.1 新增**：每个声明参数自动展开为 `--<kebab-case>` 强类型 flag（如 `cveId` → `--cve-id`），并对 APIG 自动加的 `API_` 前缀做透明剥离（`API_listSoftwarePackages` ↔ `listSoftwarePackages` 都可调用，展示名是剥前缀的）。
+> **v0.2 已实现**：`oed <service> [<method>] [--params ...] [--json ...] [--dry-run]` 全部可用，包括 path 占位符（如 `--id 12345` → 自动填到 `/api/v1/softwarepkg/{id}`）。**v0.2.3 新增**：每个声明参数自动展开为 `--<kebab-case>` 强类型 flag（如 `cveId` → `--cve-id`），并对 APIG 自动加的 `API_` 前缀做透明剥离（`API_listSoftwarePackages` ↔ `listSoftwarePackages` 都可调用，展示名是剥前缀的）。
 
 ### 3.3 参数约定（已实现）
 
 | Flag / 形式 | 含义 |
 |---|---|
 | `--<kebab-case> <value>` | 每个声明的 query / path 参数自动展开成 `--<kebab-case>` 强类型 flag；原始 spec 名（`--cveId`）与 kebab 形式（`--cve-id`）都接受，整数 / 数字类型自动强转 |
-| `--params '{...}'` | 批量传 query/path 参数的 JSON 字典；与 per-param flag 共存时 flag 覆盖同名键；path 中的 `{id}` 自动从 `params.id` 提取 |
-| `--json '{...}'` | request body（同时隐式声明 `Content-Type: application/json`）。`requestBody` 的 schema 会被内联解析后写到 `oed <service> <op> --help` 的 `body_schema` + `body_required_fields` 里，Agent 可据此自动构造 body |
+| `--params '{...}'` | 批量传 query/path 参数的 JSON 字典（**不含 request body**）；与 per-param flag 共存时 flag 覆盖同名键；path 中的 `{id}` 自动从 `params.id` 提取。若调用没传 `--json` 而 `--params` 里的键命中 requestBody 字段名，报 `body_fields_via_params` + 提示改用 `--json` |
+| `--json '{...}'` | request body（同时隐式声明 `Content-Type: application/json`）。只要 spec 声明了 `requestBody`（**无论是否标记 required**），schema 就会被内联解析后写到 `oed <service> <op> --help` 的 `body_schema` + `body_required_fields` 里，usage/examples 也会给出 `--json` 示例；Agent 可据此自动构造 body。`body_required` 仅反映 spec 的 `requestBody.required` 标记 |
 | `--dry-run` | 仅打印待执行的 HTTP 详情，不发请求 |
 
 参数解析容错：JSON 解析失败时给出行号、可粘贴的修复建议。未知 `--<flag>` 与声明参数对齐失败时报 `unknown_flag` + 提示该 operation 声明了哪些参数。
@@ -298,6 +298,8 @@ pytest
 | **多社区支持** | MVP 默认 `openeuler`；`OED_COMMUNITY` 环境变量切换；`oed services --community X` 限定一个社区 | 与 gws 的 `project` 选择类似 |
 | **缓存失效** | discovery + 单服务 spec 都 TTL 10 分钟；`oed cache refresh` 强制刷 discovery；`oed cache show/clear` 看 / 清 | 避免动态命令表抖动，详情见 README "Keeping in sync with the gateway" |
 | **认证** | `ag`（AtomGit）操作经 spec 声明的 `access_token` query 参数鉴权；`oed ag login/logout/status` 管理本地 token（Windows DPAPI 加密 / 其余平台 base64 混淆），真实调用自动注入已存 token，回显视图掩码为 `<stored>`。显式 `--access-token` 优先于本地存储。其他服务暂无本地凭证，仍走网关侧已有策略 | v0.4 的 `oed login` 子命令 + 自动注入已为 `ag` 落地（见 §8）；`OED_TOKEN` 环境变量 / 通用 `Authorization` 注入未做 |
+| **forum 占位符鉴权** | `forum`（Discourse）的 `Api-Key` / `Api-Username` 由 **oed 在请求时自动填充占位符头**（`oed-placeholder`），网关 APIG 的 header 转换规则在边缘把它们替换成真实凭证 —— 因此 oed 必须发送这些头，否则网关直接拒绝。spec 仍把它们声明为 `required` header 参数，但 oed 从 flag/help 面剔除；调用方若通过 `--params` 或 `--api-key` 传入会报 `gateway_managed_param`（exit 1）+ hint「oed 自动填，别传」 | 目标是「让 agent 相信 oed 会自动填占位符、不去检查」——`--dry-run` 的 headers 里会显示 `Api-Key: oed-placeholder`，这是 oed 的自动填充，不是缺口 |
+| **body 可见性** | help 里 body 信息（`body_schema` / `body_required_fields` / usage 的 `--json`）以「存在 requestBody」为准展示，而非 `body_required`——网关常只写 schema 级 `required`，`requestBody.required` 缺失会误判「无 body」。`--params` 示例仅在操作声明了 query/path 参数时才给出；body 型操作给 `--json` 示例 | 修正了 `forum createTopicPostPM` 事件：按 help 用 `--params` 传 body 字段 → 静默落入 `unused`、`body: null` → 网关 400。现在调用时若 `--params` 命中 body 字段名且未传 `--json`，直接报 `body_fields_via_params` |
 | **shell 补全** | 计划由 click 原生支持（`oed completion {bash,zsh,fish,powershell}`），尚未实现 | v1.0 路线图 |
 | **错误处理** | 任何 `OedError` 被顶层 catch 后以 JSON 形式写 stderr 并返回对应退出码（0/1/2/3/4）；stdout 在出错时仍为空，方便 `\| jq` 安全管道 | 详见 §4.2 错误码表 |
 
@@ -309,7 +311,7 @@ pytest
 |---|---|---|
 | v0.1 | 设计文档 + 最小脚手架 + Claude Skill + `oed info/services/schema/cache` | ✅ 已发布 |
 | v0.2 | 动态方法分发：`oed <service> <method> --params ... --json ... --dry-run`，输出 `request` 视图，禁用 OedError 转 JSON 返回 | ✅ 已发布 |
-| v0.2.1 | Per-parameter flag 表面：每个声明参数自动转 `--<kebab-case>`（`--cve-id` 而非 `--params '{"cveId":…}'`），operation 级 `--help`，APIG `API_` 前缀自动剥离并保留为别名 | ✅ 已发布 |
+| v0.2.3 | Per-parameter flag 表面：每个声明参数自动转 `--<kebab-case>`（`--cve-id` 而非 `--params '{"cveId":…}'`），operation 级 `--help`，APIG `API_` 前缀自动剥离并保留为别名 | ✅ 已发布 |
 | v0.3 | `--page-all`、NDJSON 流式分页、`--human` 美化输出 | 未开始 |
 | v0.4 | 鉴权插件：`oed ag login/logout/status` 本地 token 存储（DPAPI/base64）+ `ag` 请求自动注入 `access_token`（显式传参优先、回显掩码） | 部分落地（仅 `ag` 服务；`OED_TOKEN` 环境变量、通用 `Authorization` 注入未做） |
 | v1.0 | PyPI 首发 + 完整测试 + 跨平台 shell 补全 + 文档站 | 未开始 |

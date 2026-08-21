@@ -1,6 +1,6 @@
 ---
 name: oed-cli
-description: openEuler Infra command line (oed). Use when the task touches openEuler community services (software-package-server, easysearch, cve, discourse, mailman, etherpad, copr, app-meeting-server) and you need to discover, list, or call their REST endpoints without hand-rolling curl.
+description: "openEuler Infra 命令行（oed）。任务涉及 openEuler 社区服务 —— CVE 安全通告、软件包、论坛/讨论、会议、邮件列表（mailman）、搜索、仓库、issue、SIG 文档搜索 —— 调用任何 `oed` 命令前，必须先加载本 skill。不加载会踩坑：forum 的 Api-Key/Api-Username 由网关自动填充（自传报 error=\"gateway_managed_param\"）；ag 需先 `oed ag login` 存 token（否则 error=\"ag_token_missing\"）；POST/PUT/PATCH 请求体只能走 `--json`（走 `--params` 报 error=\"body_fields_via_params\"）。Get the live service list with `oed services`."
 ---
 
 # oed-cli — openEuler Infra command line
@@ -71,6 +71,59 @@ oed cve getSecurityNoticeByCveId --cve-id CVE-2019-10082 \
   | jq '.response.result[0] | {cveId, affectedProduct, affectedComponent}'
 ```
 
+## Sending a request body (POST/PUT/PATCH)
+
+A request body goes through `--json '{...}'` — **never** `--params`, which only
+carries query/path parameters. `oed` auto-sets `Content-Type: application/json`:
+
+```bash
+oed forum createTopicPostPM --json '{"title":"My post","raw":"body markdown"}'
+```
+
+For a body-bearing operation, `oed <service> <operation> --help` lists the body
+fields under `body_schema` / `body_required_fields` (per-field `required`
+marker) — build the `--json` payload from those. Sending body fields via
+`--params` is refused up front with `error="body_fields_via_params"` instead of
+an opaque gateway 400.
+
+### Searching SIG documentation (`search` service)
+
+`search`'s `searchSigByKeyword` (POST `/sigsearch/docs`) takes the whole query
+as **top-level fields in the `--json` body** — pass them directly, not wrapped
+under a `dataType` key. `dataType` is itself a plain optional field (one of
+`description` / `all` / `maintainer` / `repos`), **not** a container for the
+other params:
+
+```bash
+oed search searchSigByKeyword \g
+  --json '{"keyword": "AI", "keywordType": "all", "pageNum": 1, "pageSize": 20}'
+```
+
+Body fields (all top-level, `keyword` required):
+
+| Field          | Type    | Notes                                   |
+| -------------- | ------- | --------------------------------------- |
+| `keyword`      | string  | search keyword (required, ≤100 chars)   |
+| `keywordType`  | string  | keyword match type, e.g. `all` (≤30)    |
+| `pageNum`      | integer | page number, 1-based (default 1)        |
+| `pageSize`     | integer | page size                               |
+| `dataType`     | string  | `description` / `all` / `maintainer` / `repos` |
+| `nameOrder`    | string  | `desc` or `asc`                         |
+
+## Forum (Discourse) authentication
+
+`oed` auto-fills the `Api-Key` / `Api-Username` **placeholder** headers on every
+`forum` request — the gateway's header conversion swaps them for the real
+credentials at the edge. There is **nothing for you to supply or look up**:
+do not check env vars, config files, or `oed schema forum` for them.
+
+- The raw spec (`oed schema forum`) still lists `Api-Key` / `Api-Username` as
+  `required` header params — that is spec-only; `oed` fills them itself.
+- Passing them yourself (via `--params '{"Api-Key": ...}'` or `--api-key`) is
+  refused with `error="gateway_managed_param"` (exit 1) and a hint.
+- `--dry-run` shows `Api-Key: oed-placeholder` in the headers — that is
+  `oed`'s auto-fill, not a gap you need to fill.
+
 ## Recommended agent workflow
 
 1. **Probe first**: `oed info` — fail-fast on gateway outage; surface
@@ -84,10 +137,12 @@ oed cve getSecurityNoticeByCveId --cve-id CVE-2019-10082 \
    - `oed <service>` — same data plus per-operation path / params detail.
 4. **Inspect flags** for a specific operation:
    `oed <service> <operation> --help` — JSON with every auto-derived
-   `--<flag>`, required markers, and a copy-pasteable usage line.
+   `--<flag>`, required markers, and a copy-pasteable usage line. For
+   POST/PUT/PATCH operations, also read `body_schema` / `body_required_fields`
+   from the same output and build the body with `--json '{...}'`.
 5. **Dry-run** (cheap, no network):
    `oed <service> <operation> --<flag> <value> --dry-run`.
-6. **Call for real**:
+6. **Call for real** (after a successful dry-run):
    `oed <service> <operation> --<flag> <value>`.
 
 If `service` is missing → exit `4`, `error="service_not_found"`.
@@ -98,6 +153,11 @@ If an unknown flag is passed → exit `1`, `error="unknown_flag"` (hint lists
 declared params).
 If an `ag` operation needs a token and none is stored → exit `1`,
 `error="ag_token_missing"` (hint: `oed ag login`, or `--access-token <pat>`).
+If body fields are passed via `--params` (they only belong in `--json`) →
+exit `1`, `error="body_fields_via_params"` (hint points at `--json`).
+If `Api-Key` / `Api-Username` are passed on a forum call (via `--api-key` or
+`--params`) → exit `1`, `error="gateway_managed_param"` (the gateway injects
+them; never supply them).
 If the upstream returns non-2xx → exit `3`.
 
 ## Command surface (v0.2)
@@ -111,7 +171,6 @@ oed services                             # services in the current community
 oed schema <service>                     # full OpenAPI 3.x doc
 oed schema <service>.<method>            # one operation by operationId
 oed cache {show,clear,refresh}
-oed completion {bash,zsh,fish,powershell}
 
 # AtomGit (ag) token management (v0.4)
 oed ag login                             # store an AtomGit personal access token
@@ -125,7 +184,7 @@ oed <service> --help                     # service-level cheatsheet
 oed <service> <method> --help            # per-operation flag cheatsheet
 oed <service> <method>                   # call the operation (use --help to see its flags)
 oed <service> <method> --<flag> <value>  # pass a declared parameter as its own flag
-oed <service> <method> --params '{...}'  # bulk JSON for query / path params
+oed <service> <method> --params '{...}'  # bulk query/path params — NEVER the body
 oed <service> <method> --json   '{...}'  # JSON request body (POST/PUT/PATCH)
 oed <service> <method> --dry-run         # preview request, no network
 ```
@@ -148,20 +207,17 @@ Integer / number parameters get string→int / string→float coercion. `--param
 remains as an escape hatch; per-parameter flags override matching keys from
 `--params`.
 
-### APIG-generated `API_` prefix
-
-Huawei APIG auto-appends `API_` to every operationId on some services
-(currently `software-package-server`). `oed` strips it for display and
-registers the prefix-less form as a lookup alias — both forms work, the
-user-facing form is what shows up in `--help`, usage examples and call
-output. The raw spec form is preserved under `operation_id_raw` for
-traceability.
-
 ### AtomGit (`ag`) authentication
 
-`ag` operations authenticate via the `access_token` query parameter declared
-on their spec. `oed ag login` stores a personal access token once, and every
-`oed ag <operation>` call fills `access_token` automatically:
+`ag` is AtomGit — openEuler's code-hosting / Gitee-compatible platform — exposed
+through the gateway like any other service: `oed ag <operation> [flags]`. List
+its operations (issues, repos, PRs, user profile, …) with `oed ag` or
+`oed ag --help`.
+
+Authenticating: `ag` operations carry an `access_token` query parameter. Store a
+personal access token once with `oed ag login`; every `oed ag <operation>` call
+then fills `access_token` in automatically — never hand the token to
+`--params`/`--json`, it is injected for you:
 
 ```bash
 oed ag login                        # interactive; prompts, never echoes the token
@@ -171,7 +227,18 @@ oed ag login --token <pat> --no-verify  # skip validation (offline / CI)
 oed ag logout                       # forget the token
 ```
 
+Agent flow for `ag`:
+
+1. `oed ag login --status` — is a token already configured?
+2. If not, `oed ag login` (asks the user to paste a token; interactive never
+   echoes it) — or in CI, `oed ag login --token <pat> --no-verify`.
+3. Call `oed ag <operation> ...` — the stored token is injected automatically.
+
+Rules:
+
 - An explicit `--access-token <pat>` always wins over the stored token.
+- If a required token is missing everywhere, `oed` fails with
+  `error="ag_token_missing"` (exit 1) and a hint — not an opaque gateway 401.
 - `--dry-run` / request echo views mask the token as `<stored>`; the real
   value only goes out on the wire.
 - Windows stores the token DPAPI-encrypted for the current user; other
@@ -243,7 +310,7 @@ section applies to you — the rest of this file is for *callers* of `oed`.
 ```bash
 pip install -e ".[dev]"     # pytest + ruff
 ruff check src tests        # lint (E,F,W,I,B,UP,SIM, line-length=100)
-pytest -q                   # 58 tests, monkeypatch discovery, < 1s
+pytest -q                   # full offline suite, monkeypatch discovery, < 1s
 oed --version               # confirm entry point works
 ```
 

@@ -526,8 +526,9 @@ def test_call_operation_post_sends_body(patched):
 
 
 def test_call_operation_forum_sends_api_headers(patched):
-    """Forum (Discourse) requests carry the Api-Key / Api-Username sentinels
-    on the real request and in the dry-run view."""
+    """Forum (Discourse) requests carry the Api-Key / Api-Username placeholder
+    headers on the real request and in the dry-run view — the gateway converts
+    them, so oed must send them or the call is rejected."""
 
     from oed_cli.dynamic import operations_table
     from oed_cli.invoke import call_operation
@@ -544,6 +545,24 @@ def test_call_operation_forum_sends_api_headers(patched):
     dry = call_operation(op, params={"id": "1"}, dry_run=True)
     assert dry["request"]["headers"]["Api-Key"] == "oed-placeholder"
     assert dry["request"]["headers"]["Api-Username"] == "oed-placeholder"
+
+
+def test_call_operation_rejects_gateway_managed_params(patched):
+    """Api-Key / Api-Username are injected by the gateway; passing them via
+    params is refused with a hint instead of being silently forwarded."""
+
+    from oed_cli.dynamic import operations_table
+    from oed_cli.errors import UserError
+    from oed_cli.invoke import call_operation
+
+    table = operations_table(SAMPLE_SPEC, "forum", base_url="https://apig.osinfra.cn")
+    op = table["API_getSoftwarePackage"]
+
+    with pytest.raises(UserError) as excinfo:
+        call_operation(op, params={"id": "1", "Api-Key": "super-secret"})
+    err = excinfo.value.to_dict()
+    assert err["error"] == "gateway_managed_param"
+    assert "injected by the gateway" in err["message"]
 
 
 def test_call_operation_non_forum_omits_api_headers(patched):

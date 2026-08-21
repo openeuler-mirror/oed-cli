@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oed-cli"
-version = "0.1.5"
+version = "0.2.3"
 description = "oed — openEuler Infra command line. Auto-discovered, AI-friendly."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -417,7 +417,7 @@ class Operation:
     def display_name(self) -> str:         # 剥 API_ 前缀
 ```
 
-`operation_id` 与 `display_name` 的**分离**是 v0.2.1 引入的关键设计：
+`operation_id` 与 `display_name` 的**分离**是 v0.2.3 引入的关键设计：
 
 | 字段 | 值 | 用在哪儿 |
 |---|---|---|
