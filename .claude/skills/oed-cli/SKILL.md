@@ -160,7 +160,7 @@ If `Api-Key` / `Api-Username` are passed on a forum call (via `--api-key` or
 them; never supply them).
 If the upstream returns non-2xx → exit `3`.
 
-## Command surface (v0.2)
+## Command surface (v0.4)
 
 ```bash
 oed --version                            # show version
@@ -171,8 +171,10 @@ oed services                             # services in the current community
 oed schema <service>                     # full OpenAPI 3.x doc
 oed schema <service>.<method>            # one operation by operationId
 oed cache {show,clear,refresh}
+oed auth {status,token,logout,login,login --manual}   # oneid/OIDC auth management
+oed completion {bash,zsh,fish,powershell}
 
-# AtomGit (ag) token management (v0.4)
+# AtomGit (ag) token management
 oed ag login                             # store an AtomGit personal access token
 oed ag login --token <pat> --no-verify   # non-interactive, skip validation
 oed ag login --status                    # report whether a token is configured
@@ -182,11 +184,11 @@ oed ag logout                            # delete the stored token
 oed <service>                            # list every operation
 oed <service> --help                     # service-level cheatsheet
 oed <service> <method> --help            # per-operation flag cheatsheet
-oed <service> <method>                   # call the operation (use --help to see its flags)
+oed <service> <method>                   # call the operation (auto-injects Authorization if logged in)
 oed <service> <method> --<flag> <value>  # pass a declared parameter as its own flag
 oed <service> <method> --params '{...}'  # bulk query/path params — NEVER the body
 oed <service> <method> --json   '{...}'  # JSON request body (POST/PUT/PATCH)
-oed <service> <method> --dry-run         # preview request, no network
+oed <service> <method> --dry-run         # preview request (shows Authorization header when logged in)
 ```
 
 ### Per-parameter flag derivation
@@ -241,8 +243,9 @@ Rules:
   `error="ag_token_missing"` (exit 1) and a hint — not an opaque gateway 401.
 - `--dry-run` / request echo views mask the token as `<stored>`; the real
   value only goes out on the wire.
-- Windows stores the token DPAPI-encrypted for the current user; other
-  platforms use base64 (obfuscation, not encryption).
+- Stored via the same `_SecureStore` keyring backend as `oed auth` (macOS
+  Keychain / Windows DPAPI / Linux SecretService; 0600 plaintext fallback),
+  under a separate `ag:ag` keyring entry from the oneid token.
 
 ### URL construction
 
@@ -284,9 +287,96 @@ authoritative reference when `oed` output is ambiguous.
 | Env var           | Purpose                                                |
 | ----------------- | ------------------------------------------------------ |
 | `OED_COMMUNITY`   | Default community (currently only `openeuler`)         |
-| `OED_CACHE_DIR`   | Override the cache directory (default: platform XDG)   |
+| `OED_CACHE_DIR`   | Override the cache + auth directory (default: platform XDG) |
 | `OED_GATEWAY_URL` | Override the gateway origin (v0.2+)                    |
+| `OED_TOKEN`       | Bearer token (v0.4+); takes precedence over `auth.json` |
+| `OED_COOKIE`      | Optional `Cookie` header value (v0.4+); same precedence |
+| `OED_APP_ID`      | Override bundled OAuth `client_id` (fork builds only; v0.5+) |
+| `OED_DEVICE_URL`  | Override bundled openEuler usercenter base URL (v0.5+) |
+| `HMAC_SECRET`     | Shared HMAC secret for the APIG custom-auth `x-secret-token` header (v0.4+); must match the value set on the APIG FunctionGraph side |
+| `OED_USER_AGENT`  | Override the bundled `oed/<version>` UA (v0.2+)        |
 | `NO_COLOR=1`      | Disable ANSI in output (already default in v0.1)       |
+
+## Auth (v0.5)
+
+Endpoints that route through openEuler usercenter require a Bearer token.
+`oed` makes the cookie / token flow automatic when the auth file is present.
+
+**Default flow (RFC 8628 Device Authorization Grant)**: `oed login`
+(the top-level shortcut; `oed auth login` is the long form and stays valid)
+asks openEuler usercenter for a `user_code` + `verification_uri` and prints
+both to stderr. The user opens the URL in any browser (on the same host, on
+a phone, or in a remote session), approves the request, and the CLI picks
+up the resulting `access_token` + `refresh_token` automatically — no
+local HTTP server, no `redirect_uri` registration, no `client_secret`.
+The token is stored in your OS credential store when one is reachable
+(macOS Keychain, Windows DPAPI / Credential Manager, Linux SecretService).
+When no keystore is available the CLI silently falls back to
+`<OED_CACHE_DIR>/auth.json` with `0600` perms on POSIX.
+
+> **Windows / Linux users**: keyring's per-platform backends
+> (`pywin32-ctypes` / `secretstorage`) are optional extras; install one of:
+> `pip install "oed-cli[os-keyring-windows]"`,
+> `pip install "oed-cli[os-keyring-linux]"`, or
+> `pip install "oed-cli[os-keyring]"`. Without it `oed auth status` shows
+> `backend: plaintext` — not broken, just not encrypted at rest.
+
+- `oed login --manual` (or `oed auth login --manual`) pastes a token from a
+  TTY. Rejected in non-TTY contexts (`kind="not_tty"`); use `oed auth token
+  <bearer>` instead.
+- `oed auth token <bearer> [--cookie "k=v"]` directly writes the token
+  file. Preferred for agents / CI / piped scripts.
+- `oed auth status` reports whether a token is loaded; the token is shown
+  only as `token_fingerprint` (`first3...last2`).
+- `oed auth status` JSON includes a `backend` field — `"keyring"` when the
+  OS credential store is in use, `"plaintext"` when the fallback `0600`
+  `auth.json` was selected. Use this to spot when a Linux host has no
+  reachable SecretService.
+- `oed auth logout` clears the file.
+- `oed auth status` JSON includes an `allowlist` field — the per-user
+  service allow-list oed-cli has on file (see "Per-user service
+  allow-list" below). When `null`, no allow-list is configured (legacy
+  auth.json or fetch failed); when `[]`, the user explicitly cleared it
+  (fail-open). When non-empty, the list is the gate.
+
+Runtime precedence: `OED_TOKEN` env wins over `auth.json`. The token is
+sent as `Authorization: Bearer <token>` on every dynamic dispatch call;
+`401` from the upstream surfaces as `UpstreamError(kind="unauthorized")`
+with a hint pointing at `oed auth status`.
+
+**Per-user service allow-list (v0.6)**: `oed auth login` (device flow)
+fetches `GET /oneid/oidc/device/user-data` once after the token is
+returned — the response (`{"data": "service-a,service-b,..."}`) is parsed
+into a list and stored in `auth.json.allowlist`. Every subsequent
+`oed <service> ...` invocation is gated against this **local** list (no
+HTTP per call). Services not on the list are rejected with
+`UserError(kind="service_blocked_by_allowlist")` → exit 1. Reserved
+commands (`auth`, `services`, `info`, `schema`, `cache`, `--help`,
+`--version`) bypass the gate entirely.
+
+The check is **fail-open** when:
+- `auth.json` doesn't exist (not logged in)
+- `auth.json` exists but has no `allowlist` field (legacy compat)
+- `allowlist == null` (fetch failed at login time)
+- `allowlist == []` (user explicitly cleared the list in oneid)
+
+Update your allow-list in the oneid UI, then re-run `oed auth login` to
+refresh the local copy.
+
+**On headless environments**: `oed auth login` will still try to open the
+verification URL in a browser when a display is available
+(`DISPLAY` / `WAYLAND_DISPLAY` on Linux, always on macOS / Windows). On
+headless Linux it prints the URL to stderr and continues polling — open
+the URL in any browser, then return to the CLI to wait for the token.
+Override with `BROWSER=none` to skip the auto-open attempt entirely.
+
+**On the APIG custom-auth contract**: the CLI also sends an
+`x-secret-token` header on every authenticated dispatch — an HMAC-signed
+`{source: "oed-cli", target: <service>}` payload shared with the APIG
+frontend custom-auth function. The shared secret is read from
+`HMAC_SECRET` (env) on both sides; the CLI default is the dev secret
+baked into the public FunctionGraph. Production deployments MUST set
+`HMAC_SECRET` on both the CLI host and the APIG function.
 
 ---
 
@@ -330,6 +420,7 @@ file. A failure is blocking — fix it before continuing. There is no
 | HTTP client behaviour (retries, etc.)   | `src/oed_cli/http.py`        |
 | token storage / `ag` login-logout       | `src/oed_cli/auth.py`        |
 | a new exit code or error kind           | `src/oed_cli/errors.py`      |
+| auth storage / login flow / token exchange | `src/oed_cli/auth.py`     |
 | a test                                  | `tests/test_<area>.py`       |
 
 Add a new `.py` file to `src/oed_cli/` only as a last resort — the eight

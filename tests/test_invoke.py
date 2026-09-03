@@ -79,7 +79,16 @@ def captured(monkeypatch):
     box = {}
 
     def _fake_do_call(
-        method, url, params=None, body=None, timeout=30.0, headers=None, user_agent=None
+        method,
+        url,
+        params=None,
+        body=None,
+        timeout=30.0,
+        headers=None,
+        user_agent=None,
+        token=None,
+        cookie=None,
+        service_name="",
     ):
         class _R:
             status_code = 200
@@ -200,6 +209,86 @@ def test_ag_dry_run_masks_stored_token(captured):
     assert "super-secret-token" not in str(dry)
 
 
+def test_mask_echo_headers_redacts_authorization_and_cookie():
+    """``_mask_echo_headers`` redacts ``Authorization`` + ``Cookie`` only.
+
+    Regression: the query ``access_token`` was masked but the Bearer token in
+    the ``Authorization`` header (and the ``Cookie`` header) were echoed
+    verbatim into ``--dry-run`` JSON output, leaking a live credential to
+    stdout / shared CI logs.
+    """
+    from oed_cli.invoke import _mask_echo_headers
+
+    masked = _mask_echo_headers({
+        "Authorization": "Bearer super-secret-bearer",
+        "Cookie": "session-id=abc123; csrf=xyz",
+        "User-Agent": "oed/0.3.0rc1",
+        "x-oed-source": "oed-cli",
+        "Content-Type": "application/json",
+    })
+    assert masked["Authorization"] == "Bearer <stored>"
+    assert masked["Cookie"] == "<stored>"
+    # Non-sensitive headers pass through untouched.
+    assert masked["User-Agent"] == "oed/0.3.0rc1"
+    assert masked["x-oed-source"] == "oed-cli"
+    assert masked["Content-Type"] == "application/json"
+    # The real secrets are gone.
+    joined = " ".join(masked.values())
+    assert "super-secret-bearer" not in joined
+    assert "session-id=abc123" not in joined
+
+
+def test_mask_echo_headers_case_insensitive_and_non_bearer():
+    """Header name matching is case-insensitive; non-Bearer auth is fully masked."""
+
+    from oed_cli.invoke import _mask_echo_headers
+
+    masked = _mask_echo_headers({
+        "authorization": "Basic dXNlcjpwYXNz",
+        "COOKIE": "k=v",
+    })
+    assert masked["authorization"] == "<stored>"
+    assert masked["COOKIE"] == "<stored>"
+
+
+def test_dry_run_view_uses_masked_headers(captured):
+    """``--dry-run`` echo carries ``Bearer <stored>`` for the Authorization header."""
+
+    from oed_cli.invoke import call_operation
+
+    captured["set_token"]("ag-pat")  # satisfy ag's required access_token query param
+    op = _op("listAuthenticatedUserIssues")
+    dry = call_operation(
+        op,
+        dry_run=True,
+        token="super-secret-bearer",
+        cookie="session-id=abc123",
+    )
+    headers = dry["request"]["headers"]
+    assert headers["Authorization"] == "Bearer <stored>"
+    assert headers["Cookie"] == "<stored>"
+    assert "super-secret-bearer" not in str(dry)
+    assert "session-id=abc123" not in str(dry)
+
+
+def test_include_request_view_uses_masked_headers(captured):
+    """``include_request`` (non-dry-run echo) redacts the Bearer header too."""
+
+    from oed_cli.invoke import call_operation
+
+    captured["set_token"]("ag-pat")
+    op = _op("listAuthenticatedUserIssues")
+    out = call_operation(
+        op,
+        params={"filter": "all"},
+        include_request=True,
+        token="live-bearer-token",
+    )
+    headers = out["request"]["headers"]
+    assert headers["Authorization"] == "Bearer <stored>"
+    assert "live-bearer-token" not in str(out)
+
+
 # ── request-body visibility & the --params-vs--json trap ────────────────────
 # Regression for the forum createTopicPostPM incident: the gateway spec marks
 # body fields required at the *schema* level but never sets requestBody.required,
@@ -295,3 +384,113 @@ def test_body_fields_via_params_ok_when_json_passed(captured):
     op = _body_op("createTopicPostPM")
     call_operation(op, params={"title": "hi"}, body={"raw": "body"})
     assert captured["body"] == {"raw": "body"}
+
+
+# ── eulermaker getJobLog result_root auto-fix ───────────────────────────────
+# The jobs-search API returns result_root as a relative path that the spec
+# requires to end with /dmesg. Agents routinely pass the raw value (missing the
+# suffix, often with a stray leading /); oed normalizes this one known path
+# param and reports the fix in param_corrections.
+
+EULERMAKER_SPEC = {
+    "openapi": "3.0.3",
+    "info": {"title": "openeuler/eulermaker", "version": "1.0.0"},
+    "paths": {
+        "/jobs/{result_root}": {
+            "get": {
+                "summary": "get a job log",
+                "operationId": "getJobLog",
+                "parameters": [
+                    {
+                        "name": "result_root",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string"},
+                    }
+                ],
+            }
+        },
+        "/other/{root}": {
+            "get": {
+                "summary": "another operation on the same service",
+                "operationId": "getOther",
+                "parameters": [
+                    {"name": "root", "in": "path", "required": True, "schema": {"type": "string"}},
+                ],
+            }
+        },
+    },
+}
+
+
+def _eulermaker_op(name: str):
+    from oed_cli.dynamic import operations_table
+
+    return operations_table(EULERMAKER_SPEC, "eulermaker", base_url="https://apig.osinfra.cn")[name]
+
+
+def test_get_job_log_appends_dmesg_and_strips_slash(captured):
+    from oed_cli.invoke import call_operation
+
+    op = _eulermaker_op("getJobLog")
+    out = call_operation(op, params={"result_root": "/result/rpmbuild/2026-08-26/job"})
+    assert captured["url"] == "https://apig.osinfra.cn/jobs/result/rpmbuild/2026-08-26/job/dmesg"
+    assert out["param_corrections"] == [
+        "result_root: stripped leading '/'",
+        "result_root: appended '/dmesg'",
+    ]
+
+
+def test_get_job_log_appends_dmesg_only(captured):
+    from oed_cli.invoke import call_operation
+
+    op = _eulermaker_op("getJobLog")
+    call_operation(op, params={"result_root": "result/job"})
+    assert captured["url"] == "https://apig.osinfra.cn/jobs/result/job/dmesg"
+
+
+def test_get_job_log_already_normalized_untouched(captured):
+    from oed_cli.invoke import call_operation
+
+    op = _eulermaker_op("getJobLog")
+    out = call_operation(op, params={"result_root": "result/job/dmesg"})
+    assert "param_corrections" not in out
+    assert captured["url"] == "https://apig.osinfra.cn/jobs/result/job/dmesg"
+
+
+def test_get_job_log_other_operation_untouched(captured):
+    from oed_cli.invoke import call_operation
+
+    op = _eulermaker_op("getOther")
+    out = call_operation(op, params={"root": "/foo"})
+    assert "param_corrections" not in out
+    assert captured["url"] == "https://apig.osinfra.cn/other//foo"
+
+
+def test_get_job_log_other_service_untouched(captured):
+    from oed_cli.dynamic import operations_table
+    from oed_cli.invoke import call_operation
+
+    spec = {
+        "openapi": "3.0.3",
+        "info": {"title": "x", "version": "1.0.0"},
+        "paths": {
+            "/jobs/{result_root}": {
+                "get": {
+                    "operationId": "getJobLog",
+                    "parameters": [
+                        {
+                            "name": "result_root",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        }
+                    ],
+                }
+            }
+        },
+    }
+    op = operations_table(spec, "other", base_url="https://apig.osinfra.cn")["getJobLog"]
+    out = call_operation(op, params={"result_root": "/foo"})
+    assert "param_corrections" not in out
+    assert captured["url"] == "https://apig.osinfra.cn/jobs//foo"

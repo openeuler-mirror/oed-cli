@@ -31,10 +31,11 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Sequence
+from typing import Any
 
 import click
 
-from .auth import clear_token, read_token, store_token, token_info, token_path
+from .auth import clear_token, read_token, store_token, token_backend, token_info, token_path
 from .cli import cli as click_cli
 from .dynamic import (
     coerce_flag_value,
@@ -56,6 +57,24 @@ from .invoke import (
     describe_service,
 )
 
+
+def _resolve_auth() -> tuple[str | None, str | None]:
+    """Resolve the runtime token + cookie from env (priority) or auth.json.
+
+    Mirrors :func:`oed_cli.http._resolve_user_agent` precedence: explicit env
+    vars (``OED_TOKEN`` / ``OED_COOKIE``) win over the stored auth file.
+    Returns ``(None, None)`` when no credential is available.
+    """
+
+    from .auth import auth_headers_from_storage
+
+    headers = auth_headers_from_storage()
+    token = headers.get("Authorization")
+    if token and token.startswith("Bearer "):
+        token = token[len("Bearer "):]
+    cookie = headers.get("Cookie")
+    return token, cookie
+
 # Tokens that always go through the click sub-tree, regardless of whether
 # they happen to match a discovered service. Recognised single tokens:
 RESERVED_FIRST_TOKENS: frozenset[str] = frozenset(
@@ -64,8 +83,10 @@ RESERVED_FIRST_TOKENS: frozenset[str] = frozenset(
         "services",
         "schema",
         "cache",
+        "auth",
         "completion",
         "help",
+        "login",
         # the user typed only the binary with no args
         "",
         # passthrough flags
@@ -73,6 +94,23 @@ RESERVED_FIRST_TOKENS: frozenset[str] = frozenset(
 )
 # Click passes these verbatim when they're the first argv item
 LEADING_FLAGS: frozenset[str] = frozenset({"-h", "--help", "-V", "--version"})
+
+# Services that are always allowed, regardless of the per-user oneid
+# allow-list. These are public / non-oneid-gated services the CLI must keep
+# usable without a login: ``ag`` authenticates with its own PAT (AtomGit),
+# the rest are open community services. Matched by ``ServiceMeta.service_name``
+# (case-sensitive). See issue: allowlist 两来源（登录来源 + 默认放行）.
+DEFAULT_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "search",
+        "cve",
+        "easysoftware",
+        "mailman",
+        "ag",
+        "CI",
+        "meeting"
+    }
+)
 
 # Built-in control flags handled by the dispatcher itself. Everything
 # else is treated as a candidate per-parameter flag, validated later
@@ -212,6 +250,51 @@ def _merge_params(
     return params, body, 0
 
 
+def _check_allowlist(service_name: str) -> None:
+    """Local per-user allow-list gate (no HTTP).
+
+    Two sources of "allowed" (union, either suffices):
+
+    1. :data:`DEFAULT_ALLOWLIST` — services the CLI always permits regardless
+       of login state (public / non-oneid-gated services, incl. ``ag`` which
+       authenticates with its own PAT via ``oed ag login``).
+    2. The per-user ``allowlist`` field on ``auth.json`` (populated by
+       :func:`oed_cli.auth._fetch_user_allowlist` at login success).
+
+    Raises :class:`UserError` when the service is in neither source. Fail-open
+    when no per-user allow-list is available (not logged in, or missing/empty
+    field) — never blocks unconfigured / legacy state. The default list still
+    applies in every case, so a default-listed service is never blocked.
+    """
+
+    from .auth import load_auth
+    from .errors import UserError
+
+    if service_name in DEFAULT_ALLOWLIST:
+        return  # always allowed (public service / PAT-authed `ag`)
+
+    stored = load_auth()
+    if not stored:
+        return  # not logged in → don't block (reserved cmds would also miss this)
+    allowlist = stored.get("allowlist")
+    if not isinstance(allowlist, list) or not allowlist:
+        # None (never fetched), [] (user cleared), or non-list (malformed) →
+        # all treated as fail-open. The "no allowlist configured" hint in
+        # `oed auth status` makes this discoverable.
+        return
+    if service_name in allowlist:
+        return
+    raise UserError(
+        f"service '{service_name}' is not in your CLI allow-list",
+        kind="service_blocked_by_allowlist",
+        hint=(
+            f"Allowed services: {sorted(allowlist)}. "
+            "Update your allow-list in oneid, then re-run `oed auth login` "
+            "to refresh the local copy."
+        ),
+    )
+
+
 _AG_LOGIN_INSTRUCTIONS = (
     "AtomGit login\n"
     "=============\n"
@@ -310,19 +393,43 @@ def _ag_login(raw_flags: dict[str, str], bool_flags: set[str], help_requested: b
             return verify_code
 
     path = store_token(token)
-    click.echo(
-        json.dumps(
-            {
-                "ok": True,
-                "service": "ag",
-                "configured": True,
-                "token_path": str(path),
-                "note": "token stored locally; it is never echoed back",
-            },
-            ensure_ascii=False,
-            indent=2,
+    backend = token_backend("ag")
+    if backend == "keyring":
+        # The token landed in the OS credential manager (Keychain / DPAPI /
+        # SecretService); the plaintext fallback file was deleted on the
+        # successful keyring write. Pointing the user at that (now absent)
+        # file path would be misleading — say where it actually is.
+        click.echo(
+            json.dumps(
+                {
+                    "ok": True,
+                    "service": "ag",
+                    "configured": True,
+                    "backend": "keyring",
+                    "note": "token saved to the OS credential manager; "
+                    "no local file is written, and the token is never echoed back",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
         )
-    )
+    else:
+        # Plaintext fallback (headless / CI / Docker without an OS keystore):
+        # the 0600 file at `path` is the real store, so its path is accurate.
+        click.echo(
+            json.dumps(
+                {
+                    "ok": True,
+                    "service": "ag",
+                    "configured": True,
+                    "backend": "plaintext",
+                    "token_path": str(path),
+                    "note": "token stored locally (0600 file); it is never echoed back",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     return 0
 
 
@@ -378,20 +485,22 @@ def _ag_status() -> int:
 
     configured = read_token("ag") is not None
     meta = token_info("ag") or {}
+    encryption = meta.get("encryption")
+    status: dict[str, Any] = {
+        "ok": True,
+        "service": "ag",
+        "configured": configured,
+        "encryption": encryption,
+        "created_at": meta.get("created_at"),
+        "token": None,
+    }
+    # Show the on-disk path only when plaintext is the real backend; in keyring
+    # mode that file does not exist (it is deleted on a successful keyring write),
+    # so reporting it would mislead the user about where the token lives.
+    if encryption != "keyring":
+        status["token_path"] = str(token_path("ag"))
     click.echo(
-        json.dumps(
-            {
-                "ok": True,
-                "service": "ag",
-                "configured": configured,
-                "token_path": str(token_path("ag")),
-                "encryption": meta.get("encryption"),
-                "created_at": meta.get("created_at"),
-                "token": None,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
+        json.dumps(status, ensure_ascii=False, indent=2)
     )
     return 0
 
@@ -443,6 +552,9 @@ def _dispatch_dynamic(argv: Sequence[str]) -> int:
     user_agent = raw_flags.pop("user-agent", None)
     method = positional[0] if positional else None
 
+    # `ag login`/`ag logout` are credential-management commands that must not
+    # reach the dispatch backend. They run before the allow-list gate (which
+    # exempts `ag` anyway — ag is PAT-authenticated, not oneid-governed).
     if service_name == "ag" and method in ("login", "logout"):
         if len(positional) > 1:
             click.echo(
@@ -462,6 +574,15 @@ def _dispatch_dynamic(argv: Sequence[str]) -> int:
         if method == "login":
             return _ag_login(raw_flags, bool_flags, help_requested)
         return _ag_logout(help_requested)
+
+    # Per-user allow-list gate (local check against auth.json, no HTTP).
+    # Runs only for real service calls — after the ag credential-management
+    # short-circuit above, which must stay outside the gate.
+    try:
+        _check_allowlist(service_name)
+    except OedError as exc:
+        click.echo(json.dumps(exc.to_dict(), ensure_ascii=False), err=True)
+        return exc.code
 
     try:
         service = resolve_service_by_name(service_name)
@@ -531,6 +652,7 @@ def _dispatch_dynamic(argv: Sequence[str]) -> int:
     dry_run = "dry-run" in bool_flags
 
     try:
+        token, cookie = _resolve_auth()
         result = call_operation(
             op,
             params=params,
@@ -538,6 +660,8 @@ def _dispatch_dynamic(argv: Sequence[str]) -> int:
             dry_run=dry_run,
             include_request=True,
             user_agent=user_agent,
+            token=token,
+            cookie=cookie,
         )
     except OedError as exc:
         click.echo(json.dumps(exc.to_dict(), ensure_ascii=False), err=True)

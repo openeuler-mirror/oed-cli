@@ -20,14 +20,42 @@ from __future__ import annotations
 
 import datetime as _dt
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from . import http as http_mod
 from .auth import read_token
 from .dynamic import Operation, coerce_param_types, to_flag
-from .errors import NetworkError, UserError
+from .errors import NetworkError, UpstreamError, UserError
 from .http import _is_waf_block, _resolve_user_agent
+
+# Header values that carry the bearer token / session cookie are redacted in
+# any *echoed* request view (``--dry-run`` and ``include_request``). The real
+# values still go out on the wire — only the round-trip-to-terminal copy is
+# masked, so a shared log / CI trace never leaks a live credential. The scheme
+# (``Bearer``) is kept so the viewer can still tell which auth style is in use.
+_ECHO_REDACTED_HEADERS = {"authorization", "cookie"}
+
+
+def _mask_echo_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Return a copy of ``headers`` with credential-bearing values redacted.
+
+    ``Authorization: Bearer <token>`` → ``Authorization: Bearer <stored>`` and
+    ``Cookie: <cookie>`` → ``Cookie: <stored>``. Other headers pass through.
+    Only used to build the echoed request view, never the on-the-wire request.
+    """
+
+    masked: dict[str, str] = {}
+    for name, value in headers.items():
+        if name.lower() in _ECHO_REDACTED_HEADERS:
+            if name.lower() == "authorization" and value.lower().startswith("bearer "):
+                masked[name] = "Bearer <stored>"
+            else:
+                masked[name] = "<stored>"
+        else:
+            masked[name] = value
+    return masked
 
 
 def _fill_path(template: str, params: dict[str, Any]) -> tuple[str, list[str]]:
@@ -114,7 +142,14 @@ def _body_field_summary(
 
 
 def _render_response(resp: httpx.Response) -> Any:
-    """Parse the JSON body of ``resp``, returning a wrapped string for non-JSON."""
+    """Parse the JSON body of ``resp``, returning a wrapped string for non-JSON.
+
+    Non-JSON bodies (HTML WAF block page, plain-text traceback, gateway
+    maintenance page) are surfaced verbatim under ``_non_json_body`` so
+    agents can read the full error instead of guessing. The body goes on
+    stdout as JSON, so callers piping through ``| jq`` still see one
+    well-formed JSON object per command.
+    """
 
     if not resp.content:
         return None
@@ -122,7 +157,7 @@ def _render_response(resp: httpx.Response) -> Any:
         return resp.json()
     except Exception:
         return {
-            "_non_json_body": resp.text[:8192],
+            "_non_json_body": resp.text,
             "_content_type": resp.headers.get("content-type", ""),
         }
 
@@ -184,6 +219,34 @@ def _inject_ag_token(op: Operation, query_params: dict[str, Any]) -> None:
         )
 
 
+def _normalize_result_root(op: Operation, path_params: dict[str, Any]) -> list[str]:
+    """Auto-fix the ``eulermaker getJobLog`` ``result_root`` path param.
+
+    The jobs search API returns ``result_root`` as a relative path that the
+    spec requires to end with ``/dmesg``. Agents routinely pass the raw value
+    (missing the trailing ``/dmesg``) and often prepend a stray ``/``. Only
+    this one known param is rewritten — no other call is silently mutated.
+    Returns human-readable notes describing each applied fix.
+    """
+    # TODO: upgrade to a parameter-correction module so this becomes a generic
+    # hook instead of a hard-coded special case for eulermaker.getJobLog.
+    if op.service_name != "eulermaker" or op.operation_id != "getJobLog":
+        return []
+    value = path_params.get("result_root")
+    if not isinstance(value, str):
+        return []
+    notes: list[str] = []
+    fixed = value.lstrip("/")
+    if fixed != value:
+        notes.append("result_root: stripped leading '/'")
+    if not fixed.endswith("/dmesg"):
+        fixed += "/dmesg"
+        notes.append("result_root: appended '/dmesg'")
+    if fixed != value:
+        path_params["result_root"] = fixed
+    return notes
+
+
 def _reject_body_fields_via_params(op: Operation, unused: list[str]) -> None:
     """Turn a common misuse into an actionable error instead of an opaque 400.
 
@@ -210,6 +273,28 @@ def _reject_body_fields_via_params(op: Operation, unused: list[str]) -> None:
     )
 
 
+def _reject_insecure_base_url(base_url: str) -> None:
+    """Raise if ``base_url`` has an explicit non-https scheme.
+
+    A poisoned discovery cache could set ``base_url`` to ``http://...``, which
+    would exfiltrate the Bearer token / ag PAT over plaintext (issue #22).
+    An empty / scheme-less value (legacy ``$APIG_GROUP_ENTRY_URL`` placeholder
+    or an empty feed entry) is intentionally NOT rejected — it flows through
+    and fails at HTTP time per the ``resolve_runtime_gateway`` contract.
+    """
+
+    scheme = urlparse(base_url or "").scheme.lower()
+    if scheme and scheme != "https":
+        raise UserError(
+            f"runtime base_url uses insecure scheme '{scheme}://': {base_url!r}",
+            kind="insecure_base_url",
+            hint=(
+                "The local discovery cache may be poisoned. Run "
+                "`oed cache clear` then retry to refetch the gateway feed."
+            ),
+        )
+
+
 def call_operation(
     op: Operation,
     *,
@@ -219,6 +304,8 @@ def call_operation(
     timeout: float = 30.0,
     include_request: bool = False,
     user_agent: str | None = None,
+    token: str | None = None,
+    cookie: str | None = None,
 ) -> dict[str, Any]:
     """Invoke ``op`` and return a structured JSON dict suitable for stdout.
 
@@ -228,13 +315,28 @@ def call_operation(
 
     ``user_agent`` overrides the default User-Agent header; falls back to
     ``OED_USER_AGENT`` env, then the bundled default.
+
+    ``token`` adds an ``Authorization: Bearer <token>`` header (only when set).
+    ``cookie`` adds a ``Cookie: <cookie>`` header (only when set). Both flow
+    into the request envelope (and the ``dry_run`` view) the same way
+    ``user_agent`` does.
     """
 
     path_params, query_params, unused = _select_params(op, params)
     _reject_gateway_managed_params(params)
     query_params = coerce_param_types(op, query_params)
+    param_corrections = _normalize_result_root(op, path_params)
     if body is None:
         _reject_body_fields_via_params(op, unused)
+        # An operation that declares a JSON requestBody expects a JSON body on
+        # the wire. When the caller omits ``--json`` (body optional, or
+        # required and the backend will surface the missing-field error), fall
+        # back to an empty object so the request still carries
+        # ``Content-Type: application/json``. Without it the APIG gateway
+        # rejects bodyless POSTs whose API definition declares an
+        # ``application/json`` body with ``APIG.0602 invalid content type``.
+        if op.body_schema is not None:
+            body = {}
 
     filled_path, missing = _fill_path(op.path, path_params)
     if missing:
@@ -248,6 +350,20 @@ def call_operation(
     _inject_ag_token(op, query_params)
     url = f"{op.base_url}{filled_path}"
 
+    # Cache-poisoning guard (issue #22): the discovery feed's ``base_url`` is
+    # the sole source of the runtime host, so a poisoned cache that rewrites
+    # it to ``http://evil.com`` would exfiltrate the Bearer token / ag PAT in
+    # plaintext (httpx sends over http://). Reject any non-empty, non-https
+    # scheme here. An empty scheme (legacy ``$APIG_GROUP_ENTRY_URL`` placeholder
+    # / empty feed value) is left to fail at HTTP time per the
+    # ``resolve_runtime_gateway`` passthrough contract — only an explicit
+    # insecure scheme is hard-rejected, never silently rewritten.
+    _reject_insecure_base_url(op.base_url)
+
+    # Resolve user_agent once so both the request envelope and the HTTP layer
+    # see the same final value (no flag → env → default).
+    user_agent = _resolve_user_agent(user_agent)
+
     # Discourse (forum) authenticates via Api-Key / Api-Username headers. oed
     # fills them with the gateway's expected placeholder — the APIG header
     # conversion swaps them for the real credentials at the edge, so oed MUST
@@ -257,19 +373,36 @@ def call_operation(
     if op.service_name == "forum":
         api_headers = {"Api-Key": "oed-placeholder", "Api-Username": "oed-placeholder"}
 
-    request_headers: dict[str, str] = {"User-Agent": _resolve_user_agent(user_agent)}
+    request_headers: dict[str, str] = {"User-Agent": user_agent, **api_headers}
+    if token:
+        request_headers["Authorization"] = f"Bearer {token}"
+        # Plaintext identity/routing headers for the APIG custom-auth flow.
+        # NOT a secret — ``source`` declares the calling client, ``target``
+        # tells APIG which per-service header rewrite to apply. Authorization
+        # is done by the Bearer token + server-side role lookup; the previous
+        # HMAC-signed ``x-secret-token`` was removed (a secret shipped in a
+        # distributed CLI cannot be kept secret). Only emitted when
+        # service_name is meaningful (empty = discovery / spec fetch — public).
+        if op.service_name:
+            request_headers["x-oed-source"] = "oed-cli"
+            request_headers["x-oed-target"] = op.service_name
+    if cookie:
+        request_headers["Cookie"] = cookie
     if body is not None:
         request_headers["Content-Type"] = "application/json"
     # Mask credentials in any echoed request view (dry-run / include_request):
     # the real token still goes out on the wire, it just never round-trips
-    # back to the terminal.
+    # back to the terminal. ``query.access_token`` (ag PAT passed as a param)
+    # and the credential-bearing headers (Authorization / Cookie) are both
+    # redacted — the previous version masked the query but leaked the
+    # ``Authorization: Bearer <token>`` header verbatim into --dry-run output.
     request_view: dict[str, Any] = {
         "method": op.backend.method,
         "url": url,
         "query": {
             k: ("<stored>" if k == "access_token" else v) for k, v in query_params.items()
         },
-        "headers": {**request_headers, **api_headers},
+        "headers": _mask_echo_headers({**request_headers, **api_headers}),
         "body": body,
     }
 
@@ -286,6 +419,8 @@ def call_operation(
         }
         if op.display_name != op.operation_id:
             out["operation_id_raw"] = op.operation_id
+        if param_corrections:
+            out["param_corrections"] = param_corrections
         return out
 
     resp = http_mod.get_request(
@@ -296,6 +431,9 @@ def call_operation(
         headers=api_headers,
         timeout=timeout,
         user_agent=user_agent,
+        token=token,
+        cookie=cookie,
+        service_name=op.service_name,
     )
 
     if _is_waf_block(resp.text):
@@ -308,6 +446,29 @@ def call_operation(
                 "OED_USER_AGENT in the environment."
             ),
         )
+
+    if resp.status_code == 401:
+        raise UpstreamError(
+            f"{op.backend.method} {url} returned 401",
+            kind="unauthorized",
+            hint=(
+                "Token is missing or expired. Run `oed auth status` to check, "
+                "then re-login with `oed auth token <new-token>` or "
+                "`oed auth login`."
+            ),
+        )
+
+    # Capture backend-rotated session cookies (Set-Cookie) so subsequent
+    # requests pick them up automatically. Only done for 2xx/3xx — error
+    # responses rarely carry a meaningful rotation.
+    if 200 <= resp.status_code < 400 and token:
+        try:
+            from .auth import update_auth_from_response_headers
+
+            update_auth_from_response_headers(resp.headers)
+        except Exception:
+            # Cookie capture is best-effort; never fail the call because of it.
+            pass
 
     out = {
         "ok": 200 <= resp.status_code < 400,
@@ -322,6 +483,8 @@ def call_operation(
         out["request"] = request_view
     if op.display_name != op.operation_id:
         out["operation_id_raw"] = op.operation_id
+    if param_corrections:
+        out["param_corrections"] = param_corrections
     if unused:
         out["unused_params"] = unused
     return out

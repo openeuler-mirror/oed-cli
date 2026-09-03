@@ -151,3 +151,26 @@ def test_ag_logout_help(capsys, ag_env):
 def test_ag_login_too_many_positional(capsys, ag_env):
     assert ag_env["main"](["ag", "login", "extra", "--token", "t"]) == 1
     assert '"too_many_positional"' in capsys.readouterr().err
+
+
+def test_ag_login_not_blocked_by_allowlist(capsys, ag_env, monkeypatch):
+    """``oed ag login`` is credential management — must bypass the allow-list gate.
+
+    Regression: merging the oneid allow-list (hrz-dev) with the ag login
+    command (origin/main) once put ``_check_allowlist`` before the ag
+    short-circuit, so a user without ``ag`` in their allow-list could never
+    store the token in the first place. ag login/logout must run first.
+    """
+
+    import oed_cli.auth as auth_mod
+
+    # Simulate a logged-in user whose allow-list explicitly excludes "ag".
+    monkeypatch.setattr(
+        auth_mod,
+        "load_auth",
+        lambda: {"allowlist": ["cve", "forum"]},
+    )
+
+    # `oed ag login --status` must succeed despite "ag" not being allow-listed.
+    assert ag_env["main"](["ag", "login", "--status"]) == 0
+    assert '"configured": false' in capsys.readouterr().out

@@ -1,0 +1,25 @@
+title = "oed-cli gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "JWT header examples (base64 of public alg/typ metadata) and test fixtures — not real secrets. gitleaks generic-api-key rule false-positives on high-entropy base64."
+regexes = [
+    # JWT RS256 header + "..." (doc example, truncated on purpose)
+    '''eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9\.\.\.''',
+    # JWT RS256 header prefix + "..." (doc example)
+    '''eyJhbGciOiJSUzI1NiIs\.\.\.''',
+    # JWT HS256 header + "..." (doc example, truncated on purpose)
+    '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.\.\.''',
+    # JWT HS256 header + ".test.signature" (test fixture)
+    '''eyJhbGciOiJIUzI1NiJ9\.test\.signature''',
+    # JWT HS256 header + ".super-secret-payload..." (test fixture)
+    '''eyJhbGciOiJIUzI1NiJ9\.super-secret-payload-that-must-not-leak''',
+]
+
+[[allowlists]]
+description = "RFC 8628 public OAuth client_id for openEuler oneid (omapi.test). Not a secret — public clients have no client_secret by definition (RFC 8252 §7.5). gitleaks generic-api-key rule false-positives on the 24-hex-char MongoDB ObjectId format."
+regexes = [
+    '''623c3c2f1eca5ad5fca6c58a''',
+]
