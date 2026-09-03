@@ -7,6 +7,7 @@ fetch happens only when the cache is older than :data:`CACHE_TTL_SECONDS`.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import platform
@@ -16,12 +17,19 @@ from pathlib import Path
 from typing import Any
 
 from .errors import NotFoundError
-from .http import DEFAULT_GATEWAY, get_json
+from .http import apis_url, get_json
 
 CACHE_TTL_SECONDS = 600  # 10 minutes
+# Tolerance for clock skew when judging cache freshness. A cached
+# ``__oed_fetched_at`` strictly newer than ``now + _CLOCK_SKEW_SECONDS`` is
+# treated as a poisoned cache (issue #22): an attacker who can write the
+# cache file can set a future timestamp so ``now - fetched_at`` is always
+# negative and the TTL check never expires the entry. Rejecting future
+# timestamps closes the "never-expires" bypass. 300s absorbs legitimate NTP
+# drift between the writing process and a later reader. NOTE: kept in sync
+# with ``dynamic._CLOCK_SKEW_SECONDS`` — both must use the same value.
+_CLOCK_SKEW_SECONDS = 300
 DEFAULT_COMMUNITY = "openeuler"
-APIS_URL = f"{DEFAULT_GATEWAY}/discovery/apis"
-SPEC_URL_TEMPLATE = f"{DEFAULT_GATEWAY}/discovery/apis/{{community}}/{{service_name}}"
 
 
 @dataclass(frozen=True)
@@ -83,6 +91,27 @@ def _cache_path() -> Path:
     return _cache_dir() / "discovery.json"
 
 
+def auth_token_path() -> Path:
+    """Path to the auth.json file (sibling of ``discovery.json``).
+
+    Lives under the same XDG / Windows-LOCALAPPDATA cache directory as the
+    discovery feed, so a single ``OED_CACHE_DIR`` override covers both.
+    """
+    return _cache_dir() / "auth.json"
+
+
+def ag_token_path(service: str = "ag") -> Path:
+    """Path to an AtomGit (``ag``) PAT plaintext-fallback file.
+
+    Lives under a ``tokens/`` subdir of the cache dir so ``oed cache clear``
+    (which only unlinks ``discovery.json``) can never wipe credentials. The
+    real secret prefers the OS keystore via :class:`oed_cli.auth._SecureStore`;
+    this file is only the 0600 fallback when keyring is unreachable.
+    """
+
+    return _cache_dir() / "tokens" / f"{service}.json"
+
+
 def _read_cache(path: Path) -> DiscoveryFeed | None:
     if not path.is_file():
         return None
@@ -93,10 +122,52 @@ def _read_cache(path: Path) -> DiscoveryFeed | None:
     return _materialize(raw)
 
 
-def _materialize(raw: dict[str, Any]) -> DiscoveryFeed:
+def _materialize(raw: dict[str, Any]) -> DiscoveryFeed | None:
+    """Build a :class:`DiscoveryFeed` from a raw cache dict.
+
+    Returns ``None`` (→ caller refetches) when the cache is poisoned: a
+    ``__oed_fetched_at`` timestamp in the future beyond :data:`_CLOCK_SKEW_SECONDS`
+    would otherwise make the TTL check never expire the entry (issue #22).
+    """
+
     fetched_at = float(raw.get("__oed_fetched_at", 0))
+    if fetched_at > time.time() + _CLOCK_SKEW_SECONDS:
+        return None
     services = [ServiceMeta.from_raw(s) for s in raw.get("services", [])]
     return DiscoveryFeed(fetched_at=fetched_at, raw=raw, services=services)
+
+
+def _atomic_write_json(path: Path, data: dict[str, Any], *, mode: int | None = None) -> None:
+    """Write ``data`` as JSON to ``path`` atomically (tmp + replace).
+
+    Cache files are public data (discovery feed / OpenAPI specs), so by
+    default no restrictive perms are forced — only the torn-write race is
+    closed. Used by both the discovery feed cache and the per-service spec
+    cache (see :mod:`oed_cli.dynamic`) so a crash mid-write never leaves a
+    half-written file that a later read would parse as corrupt.
+
+    When ``mode`` is given (e.g. ``0o600``) the temp file is chmod'd before
+    the atomic replace, so the final file honors it. This is used for the
+    spec cache and the integrity ledger: a non-owner must NOT be able to
+    write a forged ``repr_digest`` (that would let a tampered spec pass local
+    verification). The brief pre-chmod window only exposes a public hash, so
+    read-leakage is harmless; what matters is blocking non-owner writes.
+    """
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    if mode is not None:
+        with contextlib.suppress(OSError):
+            os.chmod(tmp, mode)
+    try:
+        tmp.replace(path)
+    except OSError:
+        # Best-effort: a failed replace (e.g. cross-device tmp) leaves the
+        # .tmp behind but never corrupts the existing cache. Callers treat
+        # cache write failures as non-fatal.
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+        raise
 
 
 def _write_cache(path: Path, feed: DiscoveryFeed) -> None:
@@ -106,7 +177,7 @@ def _write_cache(path: Path, feed: DiscoveryFeed) -> None:
     }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _atomic_write_json(path, payload)
     except OSError:
         # Cache is best-effort; failures here are not fatal.
         pass
@@ -118,12 +189,12 @@ def _fetch_remote(community: str | None) -> DiscoveryFeed:
     payload which is keyed by community."""
 
     if community:
-        data = get_json(APIS_URL, params={"community": community})
+        data = get_json(apis_url(), params={"community": community})
         services: list[ServiceMeta] = []
         if isinstance(data, list):
             services = [ServiceMeta.from_raw(s) for s in data]
     else:
-        data = get_json(APIS_URL)
+        data = get_json(apis_url())
         services = []
         communities = data.get("communities", {}) if isinstance(data, dict) else {}
         if isinstance(communities, dict):
@@ -151,17 +222,21 @@ def fetch_discovery(*, community: str | None = None, force_refresh: bool = False
 
 
 def fetch_spec(service: ServiceMeta) -> dict[str, Any]:
-    """Return the OpenAPI 3.x spec for one service, parsed JSON."""
+    """Return the OpenAPI 3.x spec for one service, parsed JSON.
 
-    url = SPEC_URL_TEMPLATE.format(community=service.community, service_name=service.service_name)
-    data = get_json(url)
-    if not isinstance(data, dict) or "openapi" not in data:
-        raise NotFoundError(
-            f"spec at {url} did not return an OpenAPI document",
-            kind="spec_not_found",
-            hint="The registered service may be missing its openapi.yaml upstream.",
-        )
-    return data
+    Delegates to :func:`oed_cli.dynamic.fetch_service_spec`, which adds a
+    per-service file cache, ``If-None-Match``/304 negotiation, and
+    ``Repr-Digest`` verification (plus the local-cache integrity guards).
+    Previously this entry point fetched fresh on every call and discarded the
+    returned ETag, so 304 never fired and the spec body was re-downloaded each
+    time — the cached fetcher fixes that without changing this function's
+    contract (parsed JSON, or raises :class:`NotFoundError`). The import is
+    deferred to avoid a discovery ↔ dynamic import cycle.
+    """
+
+    from .dynamic import fetch_service_spec  # deferred: avoid import cycle
+
+    return fetch_service_spec(service)
 
 
 def current_community() -> str:

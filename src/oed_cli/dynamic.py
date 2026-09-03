@@ -51,6 +51,8 @@ with an empty ``address`` and its method/scheme taken from the OpenAPI
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -60,16 +62,24 @@ from pathlib import Path
 from typing import Any
 
 from .discovery import (
-    DEFAULT_GATEWAY,
     ServiceMeta,
+    _atomic_write_json,
+    _cache_dir,
     current_community,
     fetch_discovery,
 )
 from .errors import NotFoundError, UserError
-from .http import request_json
+from .http import fetch_json_with_integrity, spec_url
 
 SPEC_CACHE_TTL_SECONDS = 600  # 10 min, mirrors the discovery feed TTL
-SPEC_URL_TEMPLATE = f"{DEFAULT_GATEWAY}/discovery/apis/{{community}}/{{service_name}}"
+# Mirror of ``discovery._CLOCK_SKEW_SECONDS`` — a cached spec whose
+# ``__oed_fetched_at`` is newer than ``now + _CLOCK_SKEW_SECONDS`` is treated
+# as poisoned (future-timestamp TTL bypass, issue #22) and refetched. Keep in
+# sync with the discovery-side constant.
+_CLOCK_SKEW_SECONDS = 300
+# Spec URLs are built at request time via http.spec_url, which honors the
+# OED_GATEWAY / OED_DISCOVERY_PREFIX env vars so the CLI can target a test
+# deployment without code changes.
 
 # Runtime base URL for every dynamic call. Each service's gateway host
 # is read straight from the discovery feed (``ServiceMeta.base_url``) —
@@ -450,9 +460,85 @@ def coerce_flag_value(param_def: dict[str, Any], value: str) -> Any:
 
 
 def _spec_cache_path(community: str, service_name: str) -> Path:
-    from .discovery import _cache_dir  # reuse the XDG resolver
-
+    # ``_cache_dir`` is imported at module scope so tests can monkeypatch it on
+    # this module (``setattr(dyn, "_cache_dir", ...)``) and actually redirect
+    # the spec cache. A deferred ``from .discovery import _cache_dir`` here
+    # would bypass that patch and silently write to the real cache dir.
     return _cache_dir() / "specs" / community / f"{service_name}.json"
+
+
+def _integrity_index_path() -> Path:
+    """Path to the integrity ledger holding per-spec ``repr_digest`` values.
+
+    The digest is stored SEPARATELY from the spec cache file (and at 0600) so
+    that editing the visible ``spec`` field cannot, on its own, make a
+    tampered spec pass local verification — the attacker must also write this
+    protected ledger. Verification reads the digest ONLY from here, with a
+    one-time fallback to the legacy inline field for pre-hardening caches.
+    (Plan A: local-cache anti-tamper hardening.)
+    """
+    return _cache_dir() / ".integrity.json"
+
+
+def _cache_key_for_path(path: Path) -> str:
+    """Derive ``"community/service"`` from a spec cache path.
+
+    The spec cache path is ``<cache_dir>/specs/<community>/<service>.json``,
+    so ``parent.name`` is the community and the stem is the service name.
+    This lets the read helpers keep their ``path``-only signatures while
+    looking the digest up in the ledger.
+    """
+    return f"{path.parent.name}/{path.stem}"
+
+
+def _read_integrity_index() -> dict[str, str]:
+    """Load the integrity ledger, or ``{}`` when absent / unreadable."""
+    path = _integrity_index_path()
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)}
+
+
+def _write_integrity_index(index: dict[str, str]) -> None:
+    path = _integrity_index_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(path, index, mode=0o600)
+    except OSError:
+        return  # best-effort
+
+
+def _lookup_digest(path: Path) -> str | None:
+    """Return the stored ``repr_digest`` for the spec at ``path``, or None."""
+    val = _read_integrity_index().get(_cache_key_for_path(path))
+    return val if isinstance(val, str) and val else None
+
+
+def _store_digest(path: Path, digest: str) -> None:
+    """Record ``digest`` for the spec at ``path`` in the protected ledger."""
+    index = _read_integrity_index()
+    index[_cache_key_for_path(path)] = digest
+    _write_integrity_index(index)
+
+
+def _spec_repr_digest(spec: dict[str, Any]) -> str:
+    """Compute the RFC 9530 base64 sha-256 digest of a spec dict.
+
+    Serializes with the same parameters as the discovery service's
+    ``_send_integrity_response`` (``ensure_ascii=False, indent=2``), so the
+    digest matches the server's ``Repr-Digest`` of the spec body. Used to
+    verify a locally-cached spec against its stored ``repr_digest`` — detects
+    local-cache tampering (a spec edited on disk without updating the digest).
+    """
+    import base64
+    payload = json.dumps(spec, ensure_ascii=False, indent=2).encode("utf-8")
+    return base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii")
 
 
 def _read_spec_cache(path: Path) -> dict[str, Any] | None:
@@ -462,45 +548,181 @@ def _read_spec_cache(path: Path) -> dict[str, Any] | None:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    age = time.time() - float(raw.get("__oed_fetched_at", 0))
+    fetched_at = float(raw.get("__oed_fetched_at", 0))
+    # Poisoned cache (issue #22): a future timestamp makes the TTL check
+    # below never expire the entry. Reject and refetch.
+    if fetched_at > time.time() + _CLOCK_SKEW_SECONDS:
+        return None
+    age = time.time() - fetched_at
     if age >= SPEC_CACHE_TTL_SECONDS:
         return None
     spec = raw.get("spec")
-    return spec if isinstance(spec, dict) else None
+    if not isinstance(spec, dict):
+        return None
+    # Local-integrity check: verify the on-disk spec still hashes to its
+    # stored repr_digest. The digest lives in the protected integrity ledger
+    # (separate 0600 file) so editing the spec file alone can't make a
+    # tampered spec pass — the attacker must also forge the ledger. Legacy
+    # caches (pre-hardening) still carry the digest inline; read it from there
+    # as a one-time fallback so existing caches migrate on next write.
+    cached_digest = _lookup_digest(path) or raw.get("repr_digest")
+    if isinstance(cached_digest, str) and cached_digest and not hmac.compare_digest(
+        _spec_repr_digest(spec), cached_digest
+    ):
+        return None
+    return spec
 
 
-def _write_spec_cache(path: Path, spec: dict[str, Any]) -> None:
-    payload = {
+def _read_cached_etag(path: Path) -> str | None:
+    """Return the ETag stored alongside a (possibly stale) cached spec.
+
+    Used to drive a conditional ``If-None-Match`` request when the cache has
+    expired: the spec on disk may be stale but its ETag is still valid for
+    revalidation, letting the server answer ``304`` and save a full re-download.
+    """
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    etag = raw.get("etag")
+    return etag if isinstance(etag, str) and etag else None
+
+
+def _cached_repr_digest(path: Path) -> str | None:
+    """Return the stored ``repr_digest`` for the spec at ``path``.
+
+    Read from the protected integrity ledger; fall back to the legacy inline
+    field for caches written before the ledger existed (one-time migration).
+    """
+    digest = _lookup_digest(path)
+    if digest:
+        return digest
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    legacy = raw.get("repr_digest")
+    return legacy if isinstance(legacy, str) and legacy else None
+
+
+def _read_cached_spec_raw(path: Path) -> dict[str, Any] | None:
+    """Return the cached spec dict regardless of TTL, IF it passes the local
+    integrity check (its sha-256 matches the stored ``repr_digest``).
+
+    Used to reuse a spec on a ``304 Not Modified``. The integrity guard closes
+    the "304 reuses a tampered local cache" blind spot: if the on-disk spec was
+    edited without updating its digest, the caller must NOT reuse it — return
+    ``None`` so ``fetch_service_spec`` falls through to a full re-download.
+    """
+
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    spec = raw.get("spec")
+    if not isinstance(spec, dict):
+        return None
+    cached_digest = _lookup_digest(path) or raw.get("repr_digest")
+    if isinstance(cached_digest, str) and cached_digest and not hmac.compare_digest(
+        _spec_repr_digest(spec), cached_digest
+    ):
+        return None  # tampered — refuse to reuse, force re-download
+    return spec
+
+
+def _write_spec_cache(
+    path: Path,
+    spec: dict[str, Any],
+    etag: str | None = None,
+    repr_digest: str | None = None,
+) -> None:
+    """Write the spec cache file at 0600; store ``repr_digest`` in the
+    SEPARATE protected ledger rather than in this file.
+
+    ``etag`` and ``fetched_at`` stay here: the ETag is a cache token, not
+    security-sensitive (forging it only causes a safe 304-miss → refetch).
+    The ``repr_digest`` is what gates local-cache trust, so it must NOT live
+    next to the spec it guards — otherwise a single file edit can re-stamp
+    both. The spec file is 0600 so non-owners can't write it at all.
+    """
+    payload: dict[str, Any] = {
         "__oed_fetched_at": time.time(),
         "spec": spec,
     }
+    if etag:
+        payload["etag"] = etag
+    # repr_digest intentionally NOT written here — see _integrity_index_path.
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        _atomic_write_json(path, payload, mode=0o600)
     except OSError:
         return  # best-effort
+    if repr_digest:
+        _store_digest(path, repr_digest)
 
 
 def fetch_service_spec(
     service: ServiceMeta, *, force_refresh: bool = False
 ) -> dict[str, Any]:
-    """Load one service's OpenAPI, using a file cache when fresh."""
+    """Load one service's OpenAPI, using a file cache when fresh.
 
+    Beyond the TTL cache, this drives content-checksum verification and
+    conditional requests against the discovery service's integrity headers
+    (issue #15 F-03 + checksum hardening): a cached ETag is sent as
+    ``If-None-Match`` so an unchanged spec returns ``304`` (no body) and the
+    cache is merely re-stamped instead of re-downloaded. The response body's
+    SHA256 is checked against the ``Repr-Digest`` header (RFC 9530) when present;
+    a mismatch raises :class:`UpstreamError` (``integrity_mismatch``).
+
+    Local-cache integrity is also enforced on read: a cached spec whose SHA256
+    no longer matches its stored ``repr_digest`` (edited on disk) is treated as
+    invalid and refetched — both on TTL-hit reads and on ``304`` reuse.
+    """
+
+    cache_path = _spec_cache_path(service.community, service.service_name)
+
+    # Fresh cache → return immediately, no network. (Integrity-checked inside.)
     if not force_refresh:
-        cached = _read_spec_cache(_spec_cache_path(service.community, service.service_name))
+        cached = _read_spec_cache(cache_path)
         if cached is not None:
             return cached
 
-    url = SPEC_URL_TEMPLATE.format(community=service.community, service_name=service.service_name)
-    spec = request_json("GET", url)
-    if not isinstance(spec, dict) or "openapi" not in spec:
+    url = spec_url(service.community, service.service_name)
+    stale_etag = _read_cached_etag(cache_path)
+
+    # Conditional request when we hold an ETag; the server may answer 304.
+    data, etag, repr_digest = fetch_json_with_integrity(url, if_none_match=stale_etag)
+
+    if data is None:
+        # 304 Not Modified — the cached spec is still current. Reuse it rather
+        # than re-downloading, but only if it passes the local integrity check
+        # (``_read_cached_spec_raw`` verifies the on-disk spec against its
+        # stored ``repr_digest``; a tampered cache returns None here).
+        stale_spec = _read_cached_spec_raw(cache_path)
+        if stale_spec is not None:
+            _write_spec_cache(
+                cache_path, stale_spec,
+                etag=etag or stale_etag,
+                repr_digest=repr_digest or _cached_repr_digest(cache_path),
+            )
+            return stale_spec
+        # Stale spec missing or tampered — refetch unconditionally.
+        data, etag, repr_digest = fetch_json_with_integrity(url)
+
+    if not isinstance(data, dict) or "openapi" not in data:
         raise NotFoundError(
             f"GET {url} did not return an OpenAPI document",
             kind="spec_missing",
             hint="The discovery feed lists this service but its OpenAPI spec is not available.",
         )
-    _write_spec_cache(_spec_cache_path(service.community, service.service_name), spec)
-    return spec
+    _write_spec_cache(cache_path, data, etag=etag, repr_digest=repr_digest)
+    return data
 
 
 def resolve_service(community: str | None = None, force_refresh: bool = False) -> ServiceMeta:

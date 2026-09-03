@@ -26,7 +26,7 @@ src/oed_cli/
   discovery.py  # discovery feed + 缓存（10 分钟 TTL）
   dynamic.py    # OpenAPI paths → OperationsTable + per-param flag 推导
   invoke.py     # 实际调用：拼 URL、发请求、封 JSON 输出
-  auth.py       # 本地 token 存储（DPAPI/base64）+ ag 凭证自动注入
+  auth.py       # 本地 token 存储（keyring/`_SecureStore`）+ oneid device flow + ag 凭证自动注入
   http.py       # WAF-safe HTTP client
   errors.py     # OedError 体系 + 退出码 0/1/2/3/4
 
@@ -35,7 +35,7 @@ tests/
   test_dynamic.py  # 调度 + per-param flag + API_ 前缀剥离
   test_discovery.py
   test_invoke.py   # ag access_token 自动注入
-  test_auth.py     # token 存储（DPAPI/base64）
+  test_auth.py     # ag token 存储（`_SecureStore`）
 
 docs/
   cli-design.md    # 设计文档（事实之源 — 改动要先改这里）

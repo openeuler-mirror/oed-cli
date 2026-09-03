@@ -6,6 +6,7 @@ Reserved (built-in) commands:
     oed services
     oed schema <service>[.<method>]
     oed cache {show,clear,refresh}
+    oed auth {status,token,logout,login,login --manual}
 
 Dynamic dispatch (``oed <service> <method> ...``) lives in :mod:`oed_cli.main`
 and is documented in ``docs/cli-design.md`` (v0.2).
@@ -24,6 +25,7 @@ from typing import Any
 import click
 
 from . import __version__
+from .auth import auth_group, run_login
 from .discovery import (
     CACHE_TTL_SECONDS,
     DiscoveryFeed,
@@ -33,7 +35,7 @@ from .discovery import (
     fetch_spec,
 )
 from .errors import OedError
-from .http import DEFAULT_GATEWAY
+from .http import resolve_gateway
 
 
 def _print_json(data: Any, *, error: bool = False) -> None:
@@ -137,6 +139,23 @@ def cli(ctx: click.Context, no_color: bool) -> None:
     ctx.obj["no_color"] = no_color
 
 
+# Register reserved sub-groups from sibling modules.
+cli.add_command(auth_group)
+
+
+@cli.command("login")
+@click.option(
+    "--manual",
+    "-m",
+    is_flag=True,
+    help="Paste token + cookie from terminal instead of using device-flow.",
+)
+def login_cmd(manual: bool) -> None:
+    """Shortcut for ``oed auth login`` (device-flow login)."""
+
+    run_login(manual)
+
+
 @cli.command("info")
 def info() -> None:
     """Show gateway reachability and the discovery snapshot summary."""
@@ -149,7 +168,7 @@ def info() -> None:
     payload = {
         "ok": True,
         "oed_version": __version__,
-        "gateway": DEFAULT_GATEWAY,
+        "gateway": resolve_gateway(),
         "community": current_community(),
         "services_total": len(services),
         "communities_seen": sorted({s.community for s in services}),

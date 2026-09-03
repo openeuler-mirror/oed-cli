@@ -1,0 +1,44 @@
+# oed-cli defaults — bundled into the wheel, read by `oed_cli.auth.load_defaults`.
+#
+# Override priority (highest wins):
+#   1. environment variable (OED_APP_ID, OED_DEVICE_URL, OED_AUTHORIZE_URL, OED_TOKEN_URL, OED_USERINFO_URL)
+#   2. this file
+#
+# Edit this file in a fork build to point at your own openEuler usercenter
+# deployment without recompiling.
+
+[oauth]
+# Public OAuth client identifier (RFC 8628 §3.1: device-flow clients MUST be public).
+client_id = "623c3c2f1eca5ad5fca6c58a"
+
+# openEuler oneid/oidc issuer URL. Used as MSAL oidc_authority for OIDC discovery.
+# MSAL will fetch {device_url}/.well-known/openid-configuration to discover endpoints.
+# Must include at least one path segment (MSAL requirement).
+# When oneid deploys RFC 8628, update this to the actual OIDC issuer URL.
+# Override with OED_DEVICE_URL env var for testing.
+device_url = "https://omapi.osinfra.cn/oneid/oidc"
+
+# Granular endpoint overrides (set these individually for fork builds):
+authorize_url = "https://omapi.osinfra.cn/oneid/oidc/authorize"
+token_url     = "https://omapi.osinfra.cn/oneid/oidc/token"
+device_authorization_url = "https://omapi.osinfra.cn/oneid/oidc/device/code"
+
+# OAuth scopes requested at device-flow initiation. Hardcoded in
+# src/oed_cli/auth.py as `_BASE_SCOPES` (email + id_token) because these
+# are part of the wire contract with openEuler oneid; reading them from
+# this file caused stale-TOML footguns (shipped wheel didn't include
+# `id_token` and silent refresh broke). Override at runtime with the
+# `OED_SCOPES` env var (comma-separated).
+#
+# MSAL auto-appends the reserved scopes (openid/profile/offline_access)
+# and REFUSES them if passed explicitly, so this key is intentionally
+# omitted — see `_BASE_SCOPES` in auth.py for the source of truth.
+
+userinfo_url  = "https://omapi.osinfra.cn/oneid/oidc/user"
+
+# Per-user CLI service allow-list. Fetched ONCE at `oed auth login` success
+# (after /token returns) and cached in auth.json as a `allowlist` field.
+# Subsequent CLI invocations only consult the local cache — no per-call
+# HTTP fetch. Response shape: {"data": "service-a,service-b,..."}.
+# Override with OED_USER_DATA_URL env var for fork / test deployments.
+cli_user_data_url = "https://omapi.osinfra.cn/oneid/oidc/device/user-data"
