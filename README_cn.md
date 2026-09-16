@@ -1,6 +1,6 @@
 # oed-cli
 
-> **oed** —— 一个面向 openEuler 社区服务的命令行工具。自动发现、JSON 优先、AI 友好。为人类和 LLM 智能体而生。
+> **oed** —— 一个面向 openEuler 社区服务的命令行工具。自动发现、JSON 优先、AI 友好。为开发者和Agent协作贡献提供辅助。
 
 [English](README.md) | [简体中文](README_cn.md)
 
