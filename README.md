@@ -2,6 +2,8 @@
 
 > **oed** — one CLI for openEuler community services. Auto-discovered, JSON-first, AI-friendly. Built for humans and LLM agents.
 
+[English](README.md) | [简体中文](README_cn.md)
+
 [![Python](https://img.shields.io/badge/python-3.10+-blue)](https://www.python.org) [![License](https://img.shields.io/badge/license-Apache--2.0-green)](https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE) [![PyPI](https://img.shields.io/pypi/v/oed-cli)](https://pypi.org/project/oed-cli/)
 
 `oed` doesn't ship a static list of commands. It reads the openEuler Infra Discovery Service at runtime and builds its entire command surface dynamically. When a new service ships, `oed` picks it up automatically — no upgrade required.
