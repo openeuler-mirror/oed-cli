@@ -1,6 +1,6 @@
 # oed-cli
 
-> **oed** — one CLI for openEuler community services. Auto-discovered, JSON-first, AI-friendly. Built for humans and LLM agents.
+> **oed** = openEuler Developer CLI — a command-line tool for openEuler developers. Auto-discovered, JSON-first, AI-friendly. Built for humans and LLM agents.
 
 [English](README.md) | [简体中文](README_cn.md)
 
@@ -48,6 +48,18 @@ oed --version       # → oed, version 0.3.0
 pip install oed-cli
 oed cve getSecurityNoticeByCveId --cve-id CVE-2019-10082
 ```
+
+### Install the Agent Skill
+
+Agent frameworks (Claude Code, Cursor, OpenCode, …) need the bundled [Agent Skill](.claude/skills/oed-cli/SKILL.md) installed before they call `oed` correctly — it is not part of the pip wheel. For Claude Code, copy it into the skills directory:
+
+```
+git clone --depth 1 https://gitcode.com/openeuler/oed-cli /tmp/oed-cli \
+  && mkdir -p ~/.claude/skills \
+  && cp -r /tmp/oed-cli/.claude/skills/oed-cli ~/.claude/skills/
+```
+
+Other frameworks: drop it into their skill/rules directory.
 
 ### (optional) Call an AtomGit operation — store a token once
 
