@@ -1,6 +1,6 @@
 # oed-cli
 
-> **oed** —— 一个面向 openEuler 社区服务的命令行工具。自动发现、JSON 优先、AI 友好。为开发者和Agent协作贡献提供辅助。
+> **oed** = openEuler Developer CLI —— 面向 openEuler 开发者的命令行工具。自动发现、JSON 优先、AI 友好。为开发者和Agent协作贡献提供辅助。
 
 [English](README.md) | [简体中文](README_cn.md)
 
@@ -66,6 +66,18 @@ Agent 会从网关读取实时服务列表，自己学习有哪些服务、每�
 - 调用 AtomGit（`ag`）相关操作：先执行 `oed ag login` 一次性存储个人访问令牌，见 [AtomGit（`ag`）认证](docs/atomgit_auth_cn.md)。
 
 想不通过 Agent、自己动手调用？完整的调用示例（CVE 查询、找 SIG 组、看例会、查仓库、查软件包制品、查 Issue、分析 PR 门禁 CI 失败）见 [调用场景示例](docs/scenarios_cn.md)；命令速查表见 [oed-cli 常用命令解析](docs/commands_cn.md)。
+
+### 安装 Agent Skill
+
+Agent 框架（Claude Code / Cursor / OpenCode 等）要正确调用 `oed`，需要先安装自带的 [Agent Skill](.claude/skills/oed-cli/SKILL.md)——skill 不随 pip 包分发。以 Claude Code 为例，拷到其 skills 目录：
+
+```
+git clone --depth 1 https://gitcode.com/openeuler/oed-cli /tmp/oed-cli \
+  && mkdir -p ~/.claude/skills \
+  && cp -r /tmp/oed-cli/.claude/skills/oed-cli ~/.claude/skills/
+```
+
+其他框架放到各自约定的 skill / rules 目录即可。
 
 ## 更多场景
 
