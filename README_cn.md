@@ -19,6 +19,17 @@
   <a href="#支持平台"><img src="https://img.shields.io/badge/平台-8%2B-orange" alt="平台: 8+" /></a>
 </p>
 
+<p align="center">
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Claude_Code-D97757" alt="Claude Code" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Cursor-000000" alt="Cursor" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Trae-7e22ce" alt="Trae" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Codex-1F2937" alt="Codex" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Gemini_CLI-4285F4" alt="Gemini CLI" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Qwen_Code-615CED" alt="Qwen Code" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/dsh-24292e" alt="dsh" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Coze-4D6BFE" alt="Coze" /></a>
+</p>
+
 ---
 
 **`oed` 并不内置一份静态的命令列表。** 它在运行时读取 openEuler 基础设施发现服务（Infra Discovery Service），并动态构建出完整的命令接口。当有新服务上线时，`oed` 会自动识别——无需升级。

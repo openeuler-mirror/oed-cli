@@ -19,6 +19,17 @@
   <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Platforms-8%2B-orange" alt="Platforms: 8+" /></a>
 </p>
 
+<p align="center">
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Claude_Code-D97757" alt="Claude Code" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Cursor-000000" alt="Cursor" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Trae-7e22ce" alt="Trae" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Codex-1F2937" alt="Codex" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Gemini_CLI-4285F4" alt="Gemini CLI" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Qwen_Code-615CED" alt="Qwen Code" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/dsh-24292e" alt="dsh" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Coze-4D6BFE" alt="Coze" /></a>
+</p>
+
 ---
 
 **`oed` doesn't ship a static list of commands.** It reads the openEuler Infra Discovery Service at runtime and builds its entire command surface dynamically. When a new service ships, `oed` picks it up automatically — no upgrade required.
