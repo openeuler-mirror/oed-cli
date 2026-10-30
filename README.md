@@ -177,7 +177,7 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 | Qwen Code | ✅ Supported | `install.sh qwen` |
 | dsh | ✅ Supported | `install.sh dsh` |
 | Cline / any other MCP client | ✅ Supported | add `npx -y oed-mcp` to its config |
-| Coze (cloud) | ✅ Supported | Coze plugin store — search **oed** |
+| Coze (cloud) | ✅ Native | Coze plugin store — search **oed** |
 | Terminal (humans) | ✅ Native | `pip install oed-cli` |
 
 MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
