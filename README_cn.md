@@ -141,6 +141,8 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 
 MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP server 首次调用会自动引导安装 `oed` CLI，所以客户端侧只需要做接入这一步。
 
+> **目录收录** —— `oed-mcp` 也上架了这些 MCP 目录站：[Smithery](https://smithery.ai/server/oed-mcp) · [Glama](https://glama.ai/mcp/servers) · Cline 插件市场 · 官方 [MCP Registry](https://registry.modelcontextprotocol.io)（陆续上线中）。从任何目录跳转后，安装方式都是同一条：`npx -y oed-mcp`。
+
 ## 更多场景
 
 - [oed-cli 常用命令解析](docs/commands_cn.md) —— 全局命令、服务 / 操作发现、参数传法、缓存与认证命令、退出码，以及一张按需求查命令的速查表。
