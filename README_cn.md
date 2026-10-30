@@ -115,17 +115,18 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 
 ## 支持平台
 
-| 客户端 | 接入形态 | 安装方式 |
-| --- | --- | --- |
-| **Claude Code** | MCP server + Agent Skill | `install.sh claude` · 或 `claude mcp add oed -- npx -y oed-mcp` · 或安装自带 [Agent Skill](#安装-agent-skill) |
-| **Cursor** | MCP server | `install.sh cursor` |
-| **Trae / Trae 中国版** | MCP server | `install.sh trae` / `install.sh trae-cn` |
-| **Codex CLI** | MCP server | `install.sh codex` |
-| **Gemini CLI / Qwen Code** | MCP 扩展 | `install.sh gemini` / `install.sh qwen` |
-| **dsh** | MCP 插件 | `install.sh dsh` |
-| **其他 MCP 客户端**（Cline 等） | MCP server | 在其配置中加入 `npx -y oed-mcp` |
-| **扣子 Coze**（云端） | 插件商店 | 在扣子插件商店搜索 **oed** |
-| **终端**（人类） | CLI | `pip install oed-cli` |
+| 平台 | 状态 | 安装方式 |
+|----------|--------|----------------|
+| Claude Code | ✅ 原生 | `install.sh claude` · 或 `claude mcp add oed -- npx -y oed-mcp` · 或安装自带 [Agent Skill](#安装-agent-skill) |
+| Cursor | ✅ 支持 | `install.sh cursor` |
+| Trae / Trae 中国版 | ✅ 支持 | `install.sh trae` / `install.sh trae-cn` |
+| Codex CLI | ✅ 支持 | `install.sh codex` |
+| Gemini CLI | ✅ 支持 | `install.sh gemini` |
+| Qwen Code | ✅ 支持 | `install.sh qwen` |
+| dsh | ✅ 支持 | `install.sh dsh` |
+| Cline / 其他 MCP 客户端 | ✅ 支持 | 在其配置中加入 `npx -y oed-mcp` |
+| 扣子 Coze（云端） | ✅ 支持 | 扣子插件商店搜索 **oed** |
+| 终端（人类） | ✅ 原生 | `pip install oed-cli` |
 
 MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP server 首次调用会自动引导安装 `oed` CLI，所以客户端侧只需要做接入这一步。
 

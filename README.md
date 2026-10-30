@@ -156,17 +156,18 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 
 ## Multi-platform support
 
-| Client | Integration | Install |
-| --- | --- | --- |
-| **Claude Code** | MCP server + Agent Skill | `install.sh claude` · or `claude mcp add oed -- npx -y oed-mcp` · or the bundled [Agent Skill](#install-the-agent-skill) |
-| **Cursor** | MCP server | `install.sh cursor` |
-| **Trae / Trae 中国版** | MCP server | `install.sh trae` / `install.sh trae-cn` |
-| **Codex CLI** | MCP server | `install.sh codex` |
-| **Gemini CLI / Qwen Code** | MCP extension | `install.sh gemini` / `install.sh qwen` |
-| **dsh** | MCP plugin | `install.sh dsh` |
-| **Any other MCP client** (Cline, …) | MCP server | add `npx -y oed-mcp` to its config |
-| **Coze** (cloud) | plugin store | search **oed** in the Coze plugin store |
-| **Terminal** (humans) | CLI | `pip install oed-cli` |
+| Platform | Status | Install Method |
+|----------|--------|----------------|
+| Claude Code | ✅ Native | `install.sh claude` · or `claude mcp add oed -- npx -y oed-mcp` · or the bundled [Agent Skill](#install-the-agent-skill) |
+| Cursor | ✅ Supported | `install.sh cursor` |
+| Trae / Trae 中国版 | ✅ Supported | `install.sh trae` / `install.sh trae-cn` |
+| Codex CLI | ✅ Supported | `install.sh codex` |
+| Gemini CLI | ✅ Supported | `install.sh gemini` |
+| Qwen Code | ✅ Supported | `install.sh qwen` |
+| dsh | ✅ Supported | `install.sh dsh` |
+| Cline / any other MCP client | ✅ Supported | add `npx -y oed-mcp` to its config |
+| Coze (cloud) | ✅ Supported | Coze plugin store — search **oed** |
+| Terminal (humans) | ✅ Native | `pip install oed-cli` |
 
 MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
 
