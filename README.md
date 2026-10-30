@@ -182,7 +182,17 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 
 MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
 
-> **Also listed on** — the `oed-mcp` server is discoverable through these MCP directories: [Smithery](https://smithery.ai/server/oed-mcp) · [Glama](https://glama.ai/mcp/servers) · the Cline marketplace · the official [MCP Registry](https://registry.modelcontextprotocol.io) (rolling out). From any of them, the install is the same one line: `npx -y oed-mcp`.
+> **Also listed on** — the `oed-mcp` server is discoverable through these MCP directories (rolling out):
+
+| Registry / Directory | Listing |
+|----------|--------|
+| npm | [npmjs.com/package/oed-mcp](https://www.npmjs.com/package/oed-mcp) |
+| Smithery | [smithery.ai/server/oed-mcp](https://smithery.ai/server/oed-mcp) |
+| MCP Registry (official) | [registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io) |
+| Glama | [glama.ai/mcp/servers](https://glama.ai/mcp/servers) |
+| Cline marketplace | [github.com/cline/mcp-marketplace](https://github.com/cline/mcp-marketplace) |
+
+From any of them, the install is the same one line: `npx -y oed-mcp`.
 
 ## "What flags does this operation take?" → `--help`
 
