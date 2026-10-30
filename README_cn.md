@@ -1,12 +1,27 @@
-# oed-cli
+<h1 align="center">oed-cli</h1>
 
-> **oed** = openEuler Developer CLI —— 面向 openEuler 开发者的命令行工具。自动发现、JSON 优先、AI 友好。为开发者和Agent协作贡献提供辅助。
+<p align="center">
+  <strong>一条命令，打通 openEuler 全部在线服务 —— 自动发现、JSON 优先、为人和 AI Agent 而生。</strong>
+  <br />
+  <em>支持 Claude Code、Cursor、Trae、Codex、Gemini CLI、Qwen Code、dsh、扣子，以及普通的 shell 管道。</em>
+</p>
 
-[English](README.md) | [简体中文](README_cn.md)
+<p align="center">
+  <a href="README.md">English</a> | <a href="README_cn.md">简体中文</a>
+</p>
 
-[![Python](https://img.shields.io/badge/python-3.10+-blue)](https://www.python.org) [![License](https://img.shields.io/badge/license-Apache--2.0-green)](https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE) [![PyPI](https://img.shields.io/pypi/v/oed-cli)](https://pypi.org/project/oed-cli/)
+<p align="center">
+  <a href="https://pypi.org/project/oed-cli/"><img src="https://img.shields.io/pypi/v/oed-cli" alt="PyPI" /></a>
+  <a href="https://www.python.org"><img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python 3.10+" /></a>
+  <a href="https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache-2.0" /></a>
+  <a href="#一键安装-cli--mcp"><img src="https://img.shields.io/badge/MCP-oed--mcp-6f42c1" alt="MCP: oed-mcp" /></a>
+  <a href=".claude/skills/oed-cli/SKILL.md"><img src="https://img.shields.io/badge/Agent_Skill-bundled-0969da" alt="Agent Skill: bundled" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/平台-8%2B-orange" alt="平台: 8+" /></a>
+</p>
 
-`oed` 并不内置一份静态的命令列表。它在运行时读取 openEuler 基础设施发现服务（Infra Discovery Service），并动态构建出完整的命令接口。当有新服务上线时，`oed` 会自动识别——无需升级。
+---
+
+**`oed` 并不内置一份静态的命令列表。** 它在运行时读取 openEuler 基础设施发现服务（Infra Discovery Service），并动态构建出完整的命令接口。当有新服务上线时，`oed` 会自动识别——无需升级。
 
 ## 为什么选择 oed？
 
@@ -16,6 +31,7 @@
 - **运行时发现。** 你在上面看到的 `oed cve --help` 列表，是每次调用时从 `https://api-gateway.osinfra.cn/discovery/apis` 动态构建的。新服务、新端点、新的 schema 字段都会在无需升级 `oed` 的情况下自动出现。10 分钟的缓存让 CI 中的密集调用保持低成本；当你知道网关刚发布了更新时，可以用 `oed cache refresh` 强制立即重新拉取。
 - **AI 友好的输出。** stdout 上输出单个 JSON 对象，确定性的退出码（`0` 成功 · `1` 用户错误 · `2` 网络错误 · `3` 上游错误 · `4` 未找到）。日志和进度信息输出到 stderr，因此 `| jq` 始终安全。
 - **开箱即用的 Claude / Cursor 支持。** 自带 `.claude/skills/oed-cli/SKILL.md`，智能体无需自定义提示词即可知道如何使用它。
+- **MCP 就绪。** 同一套工具通过 [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp)（`npx -y oed-mcp`）触达所有 MCP 客户端——下面的 `install.sh` 一行接入。
 
 ## 安装
 
@@ -79,6 +95,40 @@ git clone --depth 1 https://gitcode.com/openeuler/oed-cli /tmp/oed-cli \
 
 其他框架放到各自约定的 skill / rules 目录即可。
 
+## 一键安装（CLI + MCP）
+
+安装脚本做两件事：装好 `oed` CLI（pipx → uv → pip，`oed` 已在 PATH 上则跳过），再把 [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server 注册进你的 Agent 客户端——让任何支持 MCP 的 Agent 直接调用全部 openEuler 服务：
+
+```bash
+# 自动探测客户端，或显式指定
+curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
+curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
+```
+
+脚本行为：
+
+1. 安装 `oed` CLI 并跑 `oed --version` 验证。
+2. 把 `npx -y oed-mcp` 注册进所选客户端——先备份原配置为 `<file>.oed-backup` 再原地合并（Claude Code 走 `claude mcp add`，Cursor/Trae 合并 `mcp.json`，Codex 追加 `config.toml`，dsh 走 `dsh plugin add`，Gemini/Qwen 走 extensions install）。
+3. 幂等、可回退：重复执行安全；`bash install.sh --uninstall <client>` 只移除 `oed` 一项。
+
+脚本不经手任何令牌。多数网关服务匿名可用；需要身份的服务，装完自己跑一次 `oed login`（openEuler oneid）或 `oed ag login`（AtomGit）——见下文认证文档。
+
+## 支持平台
+
+| 客户端 | 接入形态 | 安装方式 |
+| --- | --- | --- |
+| **Claude Code** | MCP server + Agent Skill | `install.sh claude` · 或 `claude mcp add oed -- npx -y oed-mcp` · 或安装自带 [Agent Skill](#安装-agent-skill) |
+| **Cursor** | MCP server | `install.sh cursor` |
+| **Trae / Trae 中国版** | MCP server | `install.sh trae` / `install.sh trae-cn` |
+| **Codex CLI** | MCP server | `install.sh codex` |
+| **Gemini CLI / Qwen Code** | MCP 扩展 | `install.sh gemini` / `install.sh qwen` |
+| **dsh** | MCP 插件 | `install.sh dsh` |
+| **其他 MCP 客户端**（Cline 等） | MCP server | 在其配置中加入 `npx -y oed-mcp` |
+| **扣子 Coze**（云端） | 插件商店 | 在扣子插件商店搜索 **oed** |
+| **终端**（人类） | CLI | `pip install oed-cli` |
+
+MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP server 首次调用会自动引导安装 `oed` CLI，所以客户端侧只需要做接入这一步。
+
 ## 更多场景
 
 - [oed-cli 常用命令解析](docs/commands_cn.md) —— 全局命令、服务 / 操作发现、参数传法、缓存与认证命令、退出码，以及一张按需求查命令的速查表。
@@ -94,3 +144,9 @@ git clone --depth 1 https://gitcode.com/openeuler/oed-cli /tmp/oed-cli \
 ## 许可证
 
 Apache-2.0。详见 [LICENSE](https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE)。
+
+---
+
+<p align="center">
+  <strong>一个客户端，全部 openEuler 服务。人和 Agent 都好用。</strong>
+</p>

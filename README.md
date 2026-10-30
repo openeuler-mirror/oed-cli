@@ -1,12 +1,27 @@
-# oed-cli
+<h1 align="center">oed-cli</h1>
 
-> **oed** = openEuler Developer CLI — a command-line tool for openEuler developers. Auto-discovered, JSON-first, AI-friendly. Built for humans and LLM agents.
+<p align="center">
+  <strong>One CLI for every openEuler Infra service — auto-discovered, JSON-first, built for humans and AI agents.</strong>
+  <br />
+  <em>Works with Claude Code, Cursor, Trae, Codex, Gemini CLI, Qwen Code, dsh, Coze, and plain old shell pipes.</em>
+</p>
 
-[English](README.md) | [简体中文](README_cn.md)
+<p align="center">
+  <a href="README.md">English</a> | <a href="README_cn.md">简体中文</a>
+</p>
 
-[![Python](https://img.shields.io/badge/python-3.10+-blue)](https://www.python.org) [![License](https://img.shields.io/badge/license-Apache--2.0-green)](https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE) [![PyPI](https://img.shields.io/pypi/v/oed-cli)](https://pypi.org/project/oed-cli/)
+<p align="center">
+  <a href="https://pypi.org/project/oed-cli/"><img src="https://img.shields.io/pypi/v/oed-cli" alt="PyPI" /></a>
+  <a href="https://www.python.org"><img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python 3.10+" /></a>
+  <a href="https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache-2.0" /></a>
+  <a href="#one-line-install-cli--mcp"><img src="https://img.shields.io/badge/MCP-oed--mcp-6f42c1" alt="MCP: oed-mcp" /></a>
+  <a href=".claude/skills/oed-cli/SKILL.md"><img src="https://img.shields.io/badge/Agent_Skill-bundled-0969da" alt="Agent Skill: bundled" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Platforms-8%2B-orange" alt="Platforms: 8+" /></a>
+</p>
 
-`oed` doesn't ship a static list of commands. It reads the openEuler Infra Discovery Service at runtime and builds its entire command surface dynamically. When a new service ships, `oed` picks it up automatically — no upgrade required.
+---
+
+**`oed` doesn't ship a static list of commands.** It reads the openEuler Infra Discovery Service at runtime and builds its entire command surface dynamically. When a new service ships, `oed` picks it up automatically — no upgrade required.
 
 ## Why oed?
 
@@ -16,6 +31,7 @@
 - **Runtime discovery.** The `oed cve --help` list you saw above is built from `https://api-gateway.osinfra.cn/discovery/apis` on every call. New services, new endpoints, and new schema fields show up without an `oed` upgrade. A 10-minute cache keeps CI bursts cheap; `oed cache refresh` forces an immediate re-fetch when you know the gateway just shipped.
 - **AI-friendly output.** Single JSON object on stdout, deterministic exit codes (`0` success · `1` user · `2` network · `3` upstream · `4` not found). Logs and progress go to stderr so `| jq` is always safe.
 - **Claude / Cursor ready.** Ships with `.claude/skills/oed-cli/SKILL.md` so agents know how to use it without a custom prompt.
+- **MCP-ready.** The same three tools reach any MCP client through [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) (`npx -y oed-mcp`) — `install.sh` below wires it in one line.
 
 ## Install
 
@@ -119,6 +135,40 @@ oed <service> <operation> --dry-run --…    # preview the request, no network
 ```
 
 The first `oed <service> <operation>` call after install will pull a fresh discovery feed + that service's OpenAPI spec; subsequent calls within 10 minutes reuse the local cache. Run `oed cache refresh` to force a re-fetch when you know the gateway just shipped something new.
+
+## One-line install: CLI + MCP
+
+The installer does two things: installs the `oed` CLI (pipx → uv → pip, skipped when `oed` is already on PATH), then registers the [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server with your agent client — so any MCP-capable agent can drive every openEuler service:
+
+```bash
+# auto-detect the client, or pick one explicitly
+curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
+curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
+```
+
+What it does:
+
+1. Installs the `oed` CLI and verifies `oed --version`.
+2. Registers `npx -y oed-mcp` with the chosen client — merging the client's config in place and backing it up to `<file>.oed-backup` first (`claude mcp add` for Claude Code, `mcp.json` merge for Cursor/Trae, TOML append for Codex, `dsh plugin add`, `gemini/qwen extensions install`).
+3. Is idempotent and reversible: re-running is safe; `bash install.sh --uninstall <client>` removes only the `oed` entry.
+
+No secrets are handled. Most gateway services work anonymously; for the ones that need identity, run `oed login` (openEuler oneid) or `oed ag login` (AtomGit) yourself afterwards — see the auth sections below.
+
+## Multi-platform support
+
+| Client | Integration | Install |
+| --- | --- | --- |
+| **Claude Code** | MCP server + Agent Skill | `install.sh claude` · or `claude mcp add oed -- npx -y oed-mcp` · or the bundled [Agent Skill](#install-the-agent-skill) |
+| **Cursor** | MCP server | `install.sh cursor` |
+| **Trae / Trae 中国版** | MCP server | `install.sh trae` / `install.sh trae-cn` |
+| **Codex CLI** | MCP server | `install.sh codex` |
+| **Gemini CLI / Qwen Code** | MCP extension | `install.sh gemini` / `install.sh qwen` |
+| **dsh** | MCP plugin | `install.sh dsh` |
+| **Any other MCP client** (Cline, …) | MCP server | add `npx -y oed-mcp` to its config |
+| **Coze** (cloud) | plugin store | search **oed** in the Coze plugin store |
+| **Terminal** (humans) | CLI | `pip install oed-cli` |
+
+MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
 
 ## "What flags does this operation take?" → `--help`
 
@@ -415,3 +465,9 @@ ruff check src tests
 ## License
 
 Apache-2.0. See [LICENSE](https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE).
+
+---
+
+<p align="center">
+  <strong>One client. Every openEuler service. Humans and agents alike.</strong>
+</p>
