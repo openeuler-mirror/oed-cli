@@ -143,6 +143,33 @@ register_claude() {
   fi
 }
 
+# dsh is profile-based: every subcommand needs --profile <name>. Pick the
+# only profile automatically; with several, ask via DSH_PROFILE=<name>.
+register_dsh() {
+  local prof="${DSH_PROFILE:-}"
+  if [ -z "$prof" ]; then
+    local dir="$HOME/.dsh/profiles"
+    if [ -d "$dir" ]; then
+      local count
+      count=$(ls -1 "$dir" 2>/dev/null | grep -c . || true)
+      if [ "$count" -eq 1 ]; then
+        prof=$(ls -1 "$dir" | head -1)
+        info "Using the only dsh profile: $prof"
+      elif [ "$count" -gt 1 ]; then
+        warn "Multiple dsh profiles found: $(ls -1 "$dir" | tr '\n' ' ')"
+        warn "Re-run with one: DSH_PROFILE=<name> bash install.sh dsh"
+        return 0
+      fi
+    fi
+  fi
+  if [ -n "$prof" ]; then
+    dsh plugin --profile "$prof" add "$MCP_NPM" &&
+      ok "Added $MCP_NPM as a dsh plugin in profile '$prof'"
+  else
+    warn "No dsh profile found. Manual: dsh plugin --profile <name> add $MCP_NPM"
+  fi
+}
+
 register_codex() {
   local f="${CODEX_HOME:-$HOME/.codex}/config.toml"
   backup "$f"
@@ -194,7 +221,7 @@ do_register() {
     trae)      register_json "$HOME/.trae/mcp.json" ;;
     trae-cn)   register_json "$HOME/.trae-cn/mcp.json" ;;
     codex)     register_codex ;;
-    dsh)       if have dsh; then dsh plugin add "$MCP_NPM"; else warn "dsh CLI not found — install dsh first."; fi ;;
+    dsh)       register_dsh ;;
     gemini)    if have gemini; then gemini extensions install "Hourunze1997/$MCP_NPM"; else warn "gemini CLI not found. Manual: gemini extensions install Hourunze1997/$MCP_NPM"; fi ;;
     qwen)      if have qwen; then qwen extensions install "Hourunze1997/$MCP_NPM"; else warn "qwen CLI not found. Manual: qwen extensions install Hourunze1997/$MCP_NPM"; fi ;;
     cli-only)  ok "Skipping client configuration." ;;
@@ -209,7 +236,7 @@ do_unregister() {
     trae)      unregister_json "$HOME/.trae/mcp.json" ;;
     trae-cn)   unregister_json "$HOME/.trae-cn/mcp.json" ;;
     codex)     unregister_codex ;;
-    dsh)       warn "Remove manually: check your dsh bundle patch for the mcp-oed entry." ;;
+    dsh)       warn "Remove manually: dsh plugin --profile <name> remove $MCP_NPM (check the profile's bundle patch)." ;;
     gemini)    warn "Remove manually: gemini extensions list, then uninstall the oed extension." ;;
     qwen)      warn "Remove manually: qwen extensions list, then uninstall the oed extension." ;;
     cli-only)  ok "Nothing to unregister." ;;
