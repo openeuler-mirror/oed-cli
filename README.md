@@ -169,7 +169,7 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 
 | Platform | Status | Install Method |
 |----------|--------|----------------|
-| Claude Code | ✅ Native | `install.sh claude` · or `claude mcp add oed -- npx -y oed-mcp` · or the bundled [Agent Skill](#install-the-agent-skill) |
+| Claude Code | ✅ Native | `install.sh claude` · or `claude mcp add -s user oed -- npx -y oed-mcp` · or the bundled [Agent Skill](#install-the-agent-skill) |
 | Cursor | ✅ Supported | `install.sh cursor` |
 | Trae / Trae 中国版 | ✅ Supported | `install.sh trae` / `install.sh trae-cn` |
 | Codex CLI | ✅ Supported | `install.sh codex` |
@@ -178,7 +178,8 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 | dsh | ✅ Supported | `install.sh dsh` |
 | Cline / any other MCP client | ✅ Supported | add `npx -y oed-mcp` to its config |
 | Coze (cloud) | ✅ Native | Coze plugin store — search **oed** |
-| Terminal (humans) | ✅ Native | `pip install oed-cli` |
+
+> **Native ≠ auto-discovered.** Claude Code and Coze both ride their platform's native mechanism but still need a one-time hookup: one command for Claude Code (`claude mcp add -s user oed -- npx -y oed-mcp`, registered globally, verified connected), a store search for Coze. Every other platform is wired by `install.sh` — also one command.
 
 MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
 

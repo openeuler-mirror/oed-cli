@@ -129,10 +129,17 @@ PY
 
 register_claude() {
   if have claude; then
-    claude mcp add oed -- npx -y "$MCP_NPM" && ok "Registered via: claude mcp add oed -- npx -y $MCP_NPM"
+    if claude mcp get oed >/dev/null 2>&1; then
+      ok "Claude Code already has an 'oed' MCP server (verify: claude mcp get oed)"
+      return
+    fi
+    # --scope user: register globally; the default local scope would bind the
+    # server to the current directory only.
+    claude mcp add -s user oed -- npx -y "$MCP_NPM" &&
+      ok "Registered globally: claude mcp add -s user oed -- npx -y $MCP_NPM"
   else
     warn "claude CLI not found. In Claude Code run manually:"
-    printf '      claude mcp add oed -- npx -y %s\n' "$MCP_NPM"
+    printf '      claude mcp add -s user oed -- npx -y %s\n' "$MCP_NPM"
   fi
 }
 
@@ -197,7 +204,7 @@ do_register() {
 
 do_unregister() {
   case "$1" in
-    claude)    if have claude; then claude mcp remove oed || true; else warn "claude CLI not found"; fi ;;
+    claude)    if have claude; then claude mcp remove -s user oed 2>/dev/null || claude mcp remove oed 2>/dev/null || warn "'oed' not found in Claude Code config"; else warn "claude CLI not found"; fi ;;
     cursor)    unregister_json "$HOME/.cursor/mcp.json" ;;
     trae)      unregister_json "$HOME/.trae/mcp.json" ;;
     trae-cn)   unregister_json "$HOME/.trae-cn/mcp.json" ;;

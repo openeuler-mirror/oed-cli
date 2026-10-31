@@ -128,7 +128,7 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 
 | 平台 | 状态 | 安装方式 |
 |----------|--------|----------------|
-| Claude Code | ✅ 原生 | `install.sh claude` · 或 `claude mcp add oed -- npx -y oed-mcp` · 或安装自带 [Agent Skill](#安装-agent-skill) |
+| Claude Code | ✅ 原生 | `install.sh claude` · 或 `claude mcp add -s user oed -- npx -y oed-mcp` · 或安装自带 [Agent Skill](#安装-agent-skill) |
 | Cursor | ✅ 支持 | `install.sh cursor` |
 | Trae / Trae 中国版 | ✅ 支持 | `install.sh trae` / `install.sh trae-cn` |
 | Codex CLI | ✅ 支持 | `install.sh codex` |
@@ -137,7 +137,8 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 | dsh | ✅ 支持 | `install.sh dsh` |
 | Cline / 其他 MCP 客户端 | ✅ 支持 | 在其配置中加入 `npx -y oed-mcp` |
 | 扣子 Coze（云端） | ✅ 原生 | 扣子插件商店搜索 **oed** |
-| 终端（人类） | ✅ 原生 | `pip install oed-cli` |
+
+> **原生 ≠ 自动发现。** Claude Code 与扣子走的是各平台原生机制，但都需要一次接入：Claude Code 一条命令（`claude mcp add -s user oed -- npx -y oed-mcp`，全局生效，已实测连通），扣子在插件商店搜索添加；其余平台由 `install.sh` 写入各自的 MCP 配置，同样一条命令。
 
 MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP server 首次调用会自动引导安装 `oed` CLI，所以客户端侧只需要做接入这一步。
 
