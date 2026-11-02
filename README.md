@@ -3,7 +3,7 @@
 <p align="center">
   <strong>One CLI for every openEuler Infra service — auto-discovered, JSON-first, built for humans and AI agents.</strong>
   <br />
-  <em>Works with Claude Code, Cursor, Trae, Codex, Gemini CLI, Qwen Code, dsh, Coze, OpenClaw, Hermes Agent, Kimi Code, and plain old shell pipes.</em>
+  <em>Works with Claude Code, Cursor, VS Code, Codex, Gemini CLI, OpenClaw, Kimi Code, Kiro, Coze, and 10+ more agent clients — plus plain old shell pipes.</em>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache-2.0" /></a>
   <a href="#one-line-install-cli--mcp"><img src="https://img.shields.io/badge/MCP-oed--mcp-6f42c1" alt="MCP: oed-mcp" /></a>
   <a href=".claude/skills/oed-cli/SKILL.md"><img src="https://img.shields.io/badge/Agent_Skill-bundled-0969da" alt="Agent Skill: bundled" /></a>
-  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Platforms-11%2B-orange" alt="Platforms: 11+" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Platforms-17%2B-orange" alt="Platforms: 17+" /></a>
 </p>
 
 <p align="center">
@@ -30,6 +30,12 @@
   <a href="#multi-platform-support"><img src="https://img.shields.io/badge/OpenClaw-DC2626" alt="OpenClaw" /></a>
   <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Hermes_Agent-BE185D" alt="Hermes Agent" /></a>
   <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Kimi_Code-0F766E" alt="Kimi Code" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/VS_Code-007ACC" alt="VS Code" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Copilot_CLI-1F6FEB" alt="Copilot CLI" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Antigravity-8B5CF6" alt="Antigravity" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Pi-F59E0B" alt="Pi" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Nanobot-10B981" alt="Nanobot" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Kiro-FF9900" alt="Kiro" /></a>
   <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Coze-4D6BFE" alt="Coze" /></a>
 </p>
 
@@ -163,7 +169,7 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 What it does:
 
 1. Installs the `oed` CLI and verifies `oed --version`.
-2. Registers `npx -y oed-mcp` with the chosen client — merging the client's config in place and backing it up to `<file>.oed-backup` first (`claude mcp add` for Claude Code, `mcp.json` merge for Cursor/Trae, TOML append for Codex, `dsh plugin add`, `gemini/qwen extensions install`).
+2. Registers `npx -y oed-mcp` with the chosen client — merging the client's config in place and backing it up to `<file>.oed-backup` first. Prefers each client's own CLI when available (`claude mcp add`, `openclaw mcp add`, `copilot mcp add`, `pi mcp add`, `code --add-mcp`, `dsh plugin add`, `gemini/qwen extensions install`); edits config files directly for the rest (`mcp.json` for Cursor/Trae/Kimi Code, `config.toml` for Codex, `config.yaml` for Hermes Agent, `mcp_config.json` for Antigravity, `tools.mcpServers` for Nanobot, `~/.kiro/settings/mcp.json` for Kiro).
 3. Is idempotent and reversible: re-running is safe; `bash install.sh --uninstall <client>` removes only the `oed` entry.
 
 No secrets are handled. Most gateway services work anonymously; for the ones that need identity, run `oed login` (openEuler oneid) or `oed ag login` (AtomGit) yourself afterwards — see the auth sections below.
@@ -179,9 +185,15 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 | Gemini CLI | Shell-install | `install.sh gemini` |
 | Qwen Code | Native | `qwen extensions install oed-mcp` (npm channel) · or `install.sh qwen` |
 | dsh | Shell-install | `install.sh dsh` |
-| OpenClaw | Shell-install | `openclaw mcp add oed --command npx --arg -y --arg oed-mcp` |
-| Hermes Agent | Shell-install | add `oed` under `mcp_servers` in `~/.hermes/config.yaml` |
-| Kimi Code CLI | Shell-install | add `oed` to `mcpServers` in `~/.kimi-code/mcp.json` · or `/mcp-config` in the TUI |
+| OpenClaw | Shell-install | `install.sh openclaw` · or `openclaw mcp add oed --command npx --arg -y --arg oed-mcp` |
+| Hermes Agent | Shell-install | `install.sh hermes` · or add `oed` under `mcp_servers` in `~/.hermes/config.yaml` |
+| Kimi Code CLI | Shell-install | `install.sh kimi` · or add `oed` to `mcpServers` in `~/.kimi-code/mcp.json` · or `/mcp-config` in the TUI |
+| VS Code (Copilot Chat) | Shell-install | `install.sh vscode` · or `code --add-mcp '{"name":"oed","command":"npx","args":["-y","oed-mcp"]}'` |
+| Copilot CLI | Shell-install | `install.sh copilot` · or `copilot mcp add oed -- npx -y oed-mcp` |
+| Antigravity | Shell-install | `install.sh antigravity` (writes `~/.gemini/antigravity/mcp_config.json`) |
+| Pi | Shell-install | `install.sh pi` · or `pi mcp add oed -- npx -y oed-mcp` |
+| Nanobot | Shell-install | `install.sh nanobot` (writes `tools.mcpServers` in `~/.nanobot/config.json`) |
+| Kiro CLI / IDE | Shell-install | `install.sh kiro` (writes `~/.kiro/settings/mcp.json`, shared by both) |
 | Cline / any other MCP client | Shell-install | add `npx -y oed-mcp` to its config |
 | Coze (cloud) | Native | Coze plugin store — search **oed** |
 

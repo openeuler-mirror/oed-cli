@@ -3,7 +3,7 @@
 <p align="center">
   <strong>一条命令，打通 openEuler 全部在线服务 —— 自动发现、JSON 优先、为人和 AI Agent 而生。</strong>
   <br />
-  <em>支持 Claude Code、Cursor、Trae、Codex、Gemini CLI、Qwen Code、dsh、扣子、OpenClaw、Hermes Agent、Kimi Code，以及普通的 shell 管道。</em>
+  <em>支持 Claude Code、Cursor、VS Code、Codex、Gemini CLI、OpenClaw、Kimi Code、Kiro、扣子等 17+ 个客户端，以及普通的 shell 管道。</em>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache-2.0" /></a>
   <a href="#一键安装-cli--mcp"><img src="https://img.shields.io/badge/MCP-oed--mcp-6f42c1" alt="MCP: oed-mcp" /></a>
   <a href=".claude/skills/oed-cli/SKILL.md"><img src="https://img.shields.io/badge/Agent_Skill-bundled-0969da" alt="Agent Skill: bundled" /></a>
-  <a href="#支持平台"><img src="https://img.shields.io/badge/平台-11%2B-orange" alt="平台: 11+" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/平台-17%2B-orange" alt="平台: 17+" /></a>
 </p>
 
 <p align="center">
@@ -30,6 +30,12 @@
   <a href="#支持平台"><img src="https://img.shields.io/badge/OpenClaw-DC2626" alt="OpenClaw" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/Hermes_Agent-BE185D" alt="Hermes Agent" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/Kimi_Code-0F766E" alt="Kimi Code" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/VS_Code-007ACC" alt="VS Code" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Copilot_CLI-1F6FEB" alt="Copilot CLI" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Antigravity-8B5CF6" alt="Antigravity" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Pi-F59E0B" alt="Pi" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Nanobot-10B981" alt="Nanobot" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Kiro-FF9900" alt="Kiro" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/Coze-4D6BFE" alt="Coze" /></a>
 </p>
 
@@ -122,7 +128,7 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 脚本行为：
 
 1. 安装 `oed` CLI 并跑 `oed --version` 验证。
-2. 把 `npx -y oed-mcp` 注册进所选客户端——先备份原配置为 `<file>.oed-backup` 再原地合并（Claude Code 走 `claude mcp add`，Cursor/Trae 合并 `mcp.json`，Codex 追加 `config.toml`，dsh 走 `dsh plugin add`，Gemini/Qwen 走 extensions install）。
+2. 把 `npx -y oed-mcp` 注册进所选客户端——先备份原配置为 `<file>.oed-backup` 再原地合并。优先走各家自己的 CLI（`claude mcp add`、`openclaw mcp add`、`copilot mcp add`、`pi mcp add`、`code --add-mcp`、`dsh plugin add`，Gemini/Qwen 走 extensions install）；其余直接改配置文件（Cursor/Trae/Kimi Code 合并 `mcp.json`，Codex 追加 `config.toml`，Hermes Agent 合并 `config.yaml`，Antigravity 写 `mcp_config.json`，Nanobot 写 `tools.mcpServers`，Kiro 写 `~/.kiro/settings/mcp.json`）。
 3. 幂等、可回退：重复执行安全；`bash install.sh --uninstall <client>` 只移除 `oed` 一项。
 
 脚本不经手任何令牌。多数网关服务匿名可用；需要身份的服务，装完自己跑一次 `oed login`（openEuler oneid）或 `oed ag login`（AtomGit）——见下文认证文档。
@@ -138,9 +144,15 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 | Gemini CLI | Shell-install | `install.sh gemini` |
 | Qwen Code | Native | `qwen extensions install oed-mcp`（npm 渠道）· 或 `install.sh qwen` |
 | dsh | Shell-install | `install.sh dsh` |
-| OpenClaw | Shell-install | `openclaw mcp add oed --command npx --arg -y --arg oed-mcp` |
-| Hermes Agent | Shell-install | 在 `~/.hermes/config.yaml` 的 `mcp_servers` 下加 `oed` |
-| Kimi Code CLI | Shell-install | 在 `~/.kimi-code/mcp.json` 的 `mcpServers` 里加 `oed` · 或 TUI 里 `/mcp-config` |
+| OpenClaw | Shell-install | `install.sh openclaw` · 或 `openclaw mcp add oed --command npx --arg -y --arg oed-mcp` |
+| Hermes Agent | Shell-install | `install.sh hermes` · 或在 `~/.hermes/config.yaml` 的 `mcp_servers` 下加 `oed` |
+| Kimi Code CLI | Shell-install | `install.sh kimi` · 或在 `~/.kimi-code/mcp.json` 的 `mcpServers` 里加 `oed` · 或 TUI 里 `/mcp-config` |
+| VS Code（含 Copilot Chat） | Shell-install | `install.sh vscode` · 或 `code --add-mcp '{"name":"oed","command":"npx","args":["-y","oed-mcp"]}'` |
+| Copilot CLI | Shell-install | `install.sh copilot` · 或 `copilot mcp add oed -- npx -y oed-mcp` |
+| Antigravity | Shell-install | `install.sh antigravity`（写 `~/.gemini/antigravity/mcp_config.json`） |
+| Pi | Shell-install | `install.sh pi` · 或 `pi mcp add oed -- npx -y oed-mcp` |
+| Nanobot | Shell-install | `install.sh nanobot`（写 `~/.nanobot/config.json` 的 `tools.mcpServers`） |
+| Kiro CLI / IDE | Shell-install | `install.sh kiro`（写 `~/.kiro/settings/mcp.json`，两个产品共用） |
 | Cline / 其他 MCP 客户端 | Shell-install | 在其配置中加入 `npx -y oed-mcp` |
 | 扣子 Coze（云端） | Native | 扣子插件商店搜索 **oed** |
 
