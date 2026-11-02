@@ -128,15 +128,15 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 
 | 平台 | 状态 | 安装方式 |
 |----------|--------|----------------|
-| Claude Code | 脚本安装 | `install.sh claude` · 或 `claude mcp add -s user oed -- npx -y oed-mcp` · 或安装自带 [Agent Skill](#安装-agent-skill) |
-| Cursor | 脚本安装 | `install.sh cursor` |
-| Trae / Trae 中国版 | 脚本安装 | `install.sh trae` / `install.sh trae-cn` |
-| Codex CLI | 脚本安装 | `install.sh codex` |
+| Claude Code | Shell-install | `install.sh claude` · 或 `claude mcp add -s user oed -- npx -y oed-mcp` · 或安装自带 [Agent Skill](#安装-agent-skill) |
+| Cursor | Shell-install | `install.sh cursor` |
+| Trae / Trae 中国版 | Shell-install | `install.sh trae` / `install.sh trae-cn` |
+| Codex CLI | Shell-install | `install.sh codex` |
 | Gemini CLI | Shell-install | `install.sh gemini` |
 | Qwen Code | Shell-install | `install.sh qwen` |
-| dsh | 脚本安装 | `install.sh dsh` |
-| Cline / 其他 MCP 客户端 | 脚本安装 | 在其配置中加入 `npx -y oed-mcp` |
-| 扣子 Coze（云端） | 原生上架 | 扣子插件商店搜索 **oed** |
+| dsh | Shell-install | `install.sh dsh` |
+| Cline / 其他 MCP 客户端 | Shell-install | 在其配置中加入 `npx -y oed-mcp` |
+| 扣子 Coze（云端） | Native | 扣子插件商店搜索 **oed** |
 
 > **状态的含义** —— 状态词中英文 README 统一写法，不做翻译。
 >
