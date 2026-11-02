@@ -205,13 +205,12 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 
 MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
 
-> **MCP directories** — where `oed-mcp` is already discoverable. Glama crawled npm on its own (true auto-discover); npm is our own publish; the rest are not listed — mcp.so listed us once and has since dropped the page (404 on recheck):
+> **MCP directories** — where `oed-mcp` is already discoverable. Glama crawled npm on its own (true auto-discover); npm is our own publish; the rest are not listed yet:
 
 | Directory | Listing | How it got there |
 |----------|--------|------------------|
 | npm | [npmjs.com/package/oed-mcp](https://www.npmjs.com/package/oed-mcp) | published by us |
 | Glama | [glama.ai/mcp/servers/Hourunze1997/oed-mcp](https://glama.ai/mcp/servers/Hourunze1997/oed-mcp) | auto-crawled |
-| mcp.so | — | was auto-crawled, since delisted (404, rechecked 2026-11) |
 | Smithery | — | not listed yet (submission planned) |
 | MCP Registry (official) | — | not listed yet (submission planned) |
 | Cline marketplace | — | not listed yet (submission planned) |

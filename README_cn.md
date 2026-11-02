@@ -164,13 +164,12 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 
 MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP server 首次调用会自动引导安装 `oed` CLI，所以客户端侧只需要做接入这一步。
 
-> **MCP 目录收录** —— `oed-mcp` 目前能被搜到的地方。Glama 是自动爬 npm 收录的（真正的自动发现）；npm 是我们自己发布的；mcp.so 曾自动收录、现已下架（复查 404）；其余尚未收录：
+> **MCP 目录收录** —— `oed-mcp` 目前能被搜到的地方。Glama 是自动爬 npm 收录的（真正的自动发现）；npm 是我们自己发布的；其余尚未收录、计划提交：
 
 | 目录 | 收录页 | 来源 |
 |----------|--------|------|
 | npm | [npmjs.com/package/oed-mcp](https://www.npmjs.com/package/oed-mcp) | 我们发布 |
 | Glama | [glama.ai/mcp/servers/Hourunze1997/oed-mcp](https://glama.ai/mcp/servers/Hourunze1997/oed-mcp) | 自动爬取 |
-| mcp.so | — | 曾自动收录，现已下架（2026-11 复查 404） |
 | Smithery | — | 尚未收录（计划提交） |
 | MCP Registry（官方） | — | 尚未收录（计划提交） |
 | Cline 插件市场 | — | 尚未收录（计划提交） |
