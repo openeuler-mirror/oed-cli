@@ -3,7 +3,7 @@
 <p align="center">
   <strong>One CLI for every openEuler Infra service — auto-discovered, JSON-first, built for humans and AI agents.</strong>
   <br />
-  <em>Works with Claude Code, Cursor, Trae, Codex, Gemini CLI, Qwen Code, dsh, Coze, and plain old shell pipes.</em>
+  <em>Works with Claude Code, Cursor, Trae, Codex, Gemini CLI, Qwen Code, dsh, Coze, OpenClaw, Hermes Agent, Kimi Code, and plain old shell pipes.</em>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache-2.0" /></a>
   <a href="#one-line-install-cli--mcp"><img src="https://img.shields.io/badge/MCP-oed--mcp-6f42c1" alt="MCP: oed-mcp" /></a>
   <a href=".claude/skills/oed-cli/SKILL.md"><img src="https://img.shields.io/badge/Agent_Skill-bundled-0969da" alt="Agent Skill: bundled" /></a>
-  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Platforms-8%2B-orange" alt="Platforms: 8+" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Platforms-11%2B-orange" alt="Platforms: 11+" /></a>
 </p>
 
 <p align="center">
@@ -27,6 +27,9 @@
   <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Gemini_CLI-4285F4" alt="Gemini CLI" /></a>
   <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Qwen_Code-615CED" alt="Qwen Code" /></a>
   <a href="#multi-platform-support"><img src="https://img.shields.io/badge/dsh-24292e" alt="dsh" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/OpenClaw-DC2626" alt="OpenClaw" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Hermes_Agent-BE185D" alt="Hermes Agent" /></a>
+  <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Kimi_Code-0F766E" alt="Kimi Code" /></a>
   <a href="#multi-platform-support"><img src="https://img.shields.io/badge/Coze-4D6BFE" alt="Coze" /></a>
 </p>
 
@@ -176,6 +179,9 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 | Gemini CLI | Shell-install | `install.sh gemini` |
 | Qwen Code | Native | `qwen extensions install oed-mcp` (npm channel) · or `install.sh qwen` |
 | dsh | Shell-install | `install.sh dsh` |
+| OpenClaw | Shell-install | `openclaw mcp add oed --command npx --arg -y --arg oed-mcp` |
+| Hermes Agent | Shell-install | add `oed` under `mcp_servers` in `~/.hermes/config.yaml` |
+| Kimi Code CLI | Shell-install | add `oed` to `mcpServers` in `~/.kimi-code/mcp.json` · or `/mcp-config` in the TUI |
 | Cline / any other MCP client | Shell-install | add `npx -y oed-mcp` to its config |
 | Coze (cloud) | Native | Coze plugin store — search **oed** |
 
@@ -183,7 +189,7 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 >
 > - **Native** — the platform discovers and adds `oed` through its own mechanisms, no script involved: an in-app store search (Coze — plugin store, search **oed**) or an official package channel installable by name (Qwen Code — `qwen extensions install oed-mcp` pulls it from npm, which requires the `qwen-extension.json` manifest shipped in the npm package).
 > - **Auto-discover** — the platform's catalog indexes `oed-mcp` on its own, no manual listing: an official crawler (Gemini CLI's [extension gallery](https://geminicli.com/extensions) watches the `gemini-cli-extension` GitHub topic) or an npm-crawling directory site (Glama, mcp.so below). No agent platform has this working for `oed` yet — Gemini CLI's gallery hasn't indexed the repo so far; once it does, Gemini CLI moves up to Auto-discover.
-> - **Shell-install** — no catalog on the platform lists `oed` yet, so one command wires it up: `install.sh <client>`, or the equivalent manual command in the table. Gemini CLI / Qwen Code sit here today — their native `extensions install` works fine through the script even before their catalogs list us.
+> - **Shell-install** — no catalog on the platform lists `oed` yet, so one command wires it up: `install.sh <client>`, or the equivalent manual command in the table. Gemini CLI sits here today — its native `extensions install` works fine through the script even before the gallery lists us.
 
 MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
 

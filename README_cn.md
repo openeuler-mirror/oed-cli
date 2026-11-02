@@ -3,7 +3,7 @@
 <p align="center">
   <strong>一条命令，打通 openEuler 全部在线服务 —— 自动发现、JSON 优先、为人和 AI Agent 而生。</strong>
   <br />
-  <em>支持 Claude Code、Cursor、Trae、Codex、Gemini CLI、Qwen Code、dsh、扣子，以及普通的 shell 管道。</em>
+  <em>支持 Claude Code、Cursor、Trae、Codex、Gemini CLI、Qwen Code、dsh、扣子、OpenClaw、Hermes Agent、Kimi Code，以及普通的 shell 管道。</em>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache-2.0" /></a>
   <a href="#一键安装-cli--mcp"><img src="https://img.shields.io/badge/MCP-oed--mcp-6f42c1" alt="MCP: oed-mcp" /></a>
   <a href=".claude/skills/oed-cli/SKILL.md"><img src="https://img.shields.io/badge/Agent_Skill-bundled-0969da" alt="Agent Skill: bundled" /></a>
-  <a href="#支持平台"><img src="https://img.shields.io/badge/平台-8%2B-orange" alt="平台: 8+" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/平台-11%2B-orange" alt="平台: 11+" /></a>
 </p>
 
 <p align="center">
@@ -27,6 +27,9 @@
   <a href="#支持平台"><img src="https://img.shields.io/badge/Gemini_CLI-4285F4" alt="Gemini CLI" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/Qwen_Code-615CED" alt="Qwen Code" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/dsh-24292e" alt="dsh" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/OpenClaw-DC2626" alt="OpenClaw" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Hermes_Agent-BE185D" alt="Hermes Agent" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Kimi_Code-0F766E" alt="Kimi Code" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/Coze-4D6BFE" alt="Coze" /></a>
 </p>
 
@@ -135,6 +138,9 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 | Gemini CLI | Shell-install | `install.sh gemini` |
 | Qwen Code | Native | `qwen extensions install oed-mcp`（npm 渠道）· 或 `install.sh qwen` |
 | dsh | Shell-install | `install.sh dsh` |
+| OpenClaw | Shell-install | `openclaw mcp add oed --command npx --arg -y --arg oed-mcp` |
+| Hermes Agent | Shell-install | 在 `~/.hermes/config.yaml` 的 `mcp_servers` 下加 `oed` |
+| Kimi Code CLI | Shell-install | 在 `~/.kimi-code/mcp.json` 的 `mcpServers` 里加 `oed` · 或 TUI 里 `/mcp-config` |
 | Cline / 其他 MCP 客户端 | Shell-install | 在其配置中加入 `npx -y oed-mcp` |
 | 扣子 Coze（云端） | Native | 扣子插件商店搜索 **oed** |
 
@@ -142,7 +148,7 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 >
 > - **Native** —— 平台用自己的机制就能发现并添加 `oed`，无需任何脚本：应用内商店搜索（扣子——插件商店搜 **oed**），或官方包渠道按名安装（Qwen Code——`qwen extensions install oed-mcp` 从 npm 拉取，前提是 npm 包里带上 `qwen-extension.json` 清单）。
 > - **Auto-discover** —— 平台目录自动收录，无需人工提交：要么是官方爬虫（Gemini CLI 的 [extension gallery](https://geminicli.com/extensions) 盯着 `gemini-cli-extension` GitHub topic），要么是自动爬 npm 的目录站（下面的 Glama、mcp.so）。目前还没有哪个 Agent 平台对我们生效——Gemini 的 gallery 尚未索引到仓库，收录后 Gemini CLI 即转为 Auto-discover。
-> - **Shell-install** —— 平台任何目录都还没有收录 `oed`，用一条命令接入：`install.sh <client>`，或表中等价的手动命令。Gemini CLI / Qwen Code 目前落在这里——它们原生的 `extensions install` 机制通过脚本完全可用，只是官方目录还没列出我们。
+> - **Shell-install** —— 平台任何目录都还没有收录 `oed`，用一条命令接入：`install.sh <client>`，或表中等价的手动命令。Gemini CLI 目前落在这里——它原生的 `extensions install` 机制通过脚本完全可用，只是官方 gallery 还没列出我们。
 
 MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP server 首次调用会自动引导安装 `oed` CLI，所以客户端侧只需要做接入这一步。
 
