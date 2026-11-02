@@ -169,31 +169,36 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 
 | Platform | Status | Install Method |
 |----------|--------|----------------|
-| Claude Code | ✅ Native | `install.sh claude` · or `claude mcp add -s user oed -- npx -y oed-mcp` · or the bundled [Agent Skill](#install-the-agent-skill) |
-| Cursor | ✅ Supported | `install.sh cursor` |
-| Trae / Trae 中国版 | ✅ Supported | `install.sh trae` / `install.sh trae-cn` |
-| Codex CLI | ✅ Supported | `install.sh codex` |
-| Gemini CLI | ✅ Supported | `install.sh gemini` |
-| Qwen Code | ✅ Supported | `install.sh qwen` |
-| dsh | ✅ Supported | `install.sh dsh` |
-| Cline / any other MCP client | ✅ Supported | add `npx -y oed-mcp` to its config |
-| Coze (cloud) | ✅ Native | Coze plugin store — search **oed** |
+| Claude Code | Shell-install | `install.sh claude` · or `claude mcp add -s user oed -- npx -y oed-mcp` · or the bundled [Agent Skill](#install-the-agent-skill) |
+| Cursor | Shell-install | `install.sh cursor` |
+| Trae / Trae 中国版 | Shell-install | `install.sh trae` / `install.sh trae-cn` |
+| Codex CLI | Shell-install | `install.sh codex` |
+| Gemini CLI | Auto-discover | `install.sh gemini` |
+| Qwen Code | Auto-discover | `install.sh qwen` |
+| dsh | Shell-install | `install.sh dsh` |
+| Cline / any other MCP client | Shell-install | add `npx -y oed-mcp` to its config |
+| Coze (cloud) | Native | Coze plugin store — search **oed** |
 
-> **Native ≠ auto-discovered.** Claude Code and Coze both ride their platform's native mechanism but still need a one-time hookup: one command for Claude Code (`claude mcp add -s user oed -- npx -y oed-mcp`, registered globally, verified connected), a store search for Coze. Every other platform is wired by `install.sh` — also one command.
+> **What the three statuses mean**
+>
+> - **Native** — the platform runs its own store/marketplace and `oed` is searchable right in it: users add it in-app, no script involved. Today that's Coze only (plugin store, search **oed**).
+> - **Auto-discover** — the platform's directory picks `oed-mcp` up on its own, no manual listing. Gemini CLI and Qwen Code discover community extensions through GitHub topics: the `gemini-cli-extension` / `qwen-code` tags on [Hourunze1997/oed-mcp](https://github.com/Hourunze1997/oed-mcp) list it in [topics/gemini-cli-extension](https://github.com/topics/gemini-cli-extension) and [topics/qwen-code](https://github.com/topics/qwen-code). The MCP directory sites below (Glama, mcp.so) are the same idea — they crawl npm automatically.
+> - **Shell-install** — not listed anywhere on that platform, so one command wires it up: `install.sh <client>`, or the equivalent manual command in the table.
 
 MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
 
-> **Also listed on** — the `oed-mcp` server is discoverable through these MCP directories (rolling out):
+> **MCP directories** — where `oed-mcp` is already discoverable. Glama and mcp.so crawled npm on their own (true auto-discover); npm is our own publish; the rest are not listed yet:
 
-| Registry / Directory | Listing |
-|----------|--------|
-| npm | [npmjs.com/package/oed-mcp](https://www.npmjs.com/package/oed-mcp) |
-| Smithery | [smithery.ai/server/oed-mcp](https://smithery.ai/server/oed-mcp) |
-| MCP Registry (official) | [registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io) |
-| Glama | [glama.ai/mcp/servers](https://glama.ai/mcp/servers) |
-| Cline marketplace | [github.com/cline/mcp-marketplace](https://github.com/cline/mcp-marketplace) |
+| Directory | Listing | How it got there |
+|----------|--------|------------------|
+| npm | [npmjs.com/package/oed-mcp](https://www.npmjs.com/package/oed-mcp) | published by us |
+| Glama | [glama.ai/mcp/servers/Hourunze1997/oed-mcp](https://glama.ai/mcp/servers/Hourunze1997/oed-mcp) | auto-crawled |
+| mcp.so | [mcp.so/server/oed-mcp/Hourunze1997](https://mcp.so/server/oed-mcp/Hourunze1997) | auto-crawled |
+| Smithery | — | not listed yet (submission planned) |
+| MCP Registry (official) | — | not listed yet (submission planned) |
+| Cline marketplace | — | not listed yet (submission planned) |
 
-From any of them, the install is the same one line: `npx -y oed-mcp`.
+From npm or either crawled directory, the install is the same one line: `npx -y oed-mcp`.
 
 ## "What flags does this operation take?" → `--help`
 

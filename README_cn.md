@@ -128,31 +128,36 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 
 | 平台 | 状态 | 安装方式 |
 |----------|--------|----------------|
-| Claude Code | ✅ 原生 | `install.sh claude` · 或 `claude mcp add -s user oed -- npx -y oed-mcp` · 或安装自带 [Agent Skill](#安装-agent-skill) |
-| Cursor | ✅ 支持 | `install.sh cursor` |
-| Trae / Trae 中国版 | ✅ 支持 | `install.sh trae` / `install.sh trae-cn` |
-| Codex CLI | ✅ 支持 | `install.sh codex` |
-| Gemini CLI | ✅ 支持 | `install.sh gemini` |
-| Qwen Code | ✅ 支持 | `install.sh qwen` |
-| dsh | ✅ 支持 | `install.sh dsh` |
-| Cline / 其他 MCP 客户端 | ✅ 支持 | 在其配置中加入 `npx -y oed-mcp` |
-| 扣子 Coze（云端） | ✅ 原生 | 扣子插件商店搜索 **oed** |
+| Claude Code | 脚本安装 | `install.sh claude` · 或 `claude mcp add -s user oed -- npx -y oed-mcp` · 或安装自带 [Agent Skill](#安装-agent-skill) |
+| Cursor | 脚本安装 | `install.sh cursor` |
+| Trae / Trae 中国版 | 脚本安装 | `install.sh trae` / `install.sh trae-cn` |
+| Codex CLI | 脚本安装 | `install.sh codex` |
+| Gemini CLI | 自动收录 | `install.sh gemini` |
+| Qwen Code | 自动收录 | `install.sh qwen` |
+| dsh | 脚本安装 | `install.sh dsh` |
+| Cline / 其他 MCP 客户端 | 脚本安装 | 在其配置中加入 `npx -y oed-mcp` |
+| 扣子 Coze（云端） | 原生上架 | 扣子插件商店搜索 **oed** |
 
-> **原生 ≠ 自动发现。** Claude Code 与扣子走的是各平台原生机制，但都需要一次接入：Claude Code 一条命令（`claude mcp add -s user oed -- npx -y oed-mcp`，全局生效，已实测连通），扣子在插件商店搜索添加；其余平台由 `install.sh` 写入各自的 MCP 配置，同样一条命令。
+> **三种状态的含义**
+>
+> - **原生上架（Native）** —— 平台自带商店 / 市场，`oed` 能直接搜到、在界面里一键添加，无需任何脚本。目前只有扣子（插件商店搜 **oed**）。
+> - **自动收录（Auto-discover）** —— 平台目录自动收录，无需人工提交。Gemini CLI 与 Qwen Code 通过 GitHub topic 发现社区扩展：[Hourunze1997/oed-mcp](https://github.com/Hourunze1997/oed-mcp) 已打 `gemini-cli-extension` / `qwen-code` 标签，自动进入 [topics/gemini-cli-extension](https://github.com/topics/gemini-cli-extension) 与 [topics/qwen-code](https://github.com/topics/qwen-code) 目录。下面的 MCP 目录站（Glama、mcp.so）则是自动爬 npm 收录，同理。
+> - **脚本安装（Shell-install）** —— 平台侧没有任何收录，用一条命令接入：`install.sh <client>`，或表中等价的手动命令。
 
 MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP server 首次调用会自动引导安装 `oed` CLI，所以客户端侧只需要做接入这一步。
 
-> **目录收录** —— `oed-mcp` 也上架了这些 MCP 目录 / 市场（陆续上线中）：
+> **MCP 目录收录** —— `oed-mcp` 目前能被搜到的地方。Glama 和 mcp.so 是自动爬 npm 收录的（真正的自动发现）；npm 是我们自己发布的；其余尚未收录、计划提交：
 
-| 目录 / 市场 | 页面 |
-|----------|--------|
-| npm | [npmjs.com/package/oed-mcp](https://www.npmjs.com/package/oed-mcp) |
-| Smithery | [smithery.ai/server/oed-mcp](https://smithery.ai/server/oed-mcp) |
-| MCP Registry（官方） | [registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io) |
-| Glama | [glama.ai/mcp/servers](https://glama.ai/mcp/servers) |
-| Cline 插件市场 | [github.com/cline/mcp-marketplace](https://github.com/cline/mcp-marketplace) |
+| 目录 | 收录页 | 来源 |
+|----------|--------|------|
+| npm | [npmjs.com/package/oed-mcp](https://www.npmjs.com/package/oed-mcp) | 我们发布 |
+| Glama | [glama.ai/mcp/servers/Hourunze1997/oed-mcp](https://glama.ai/mcp/servers/Hourunze1997/oed-mcp) | 自动爬取 |
+| mcp.so | [mcp.so/server/oed-mcp/Hourunze1997](https://mcp.so/server/oed-mcp/Hourunze1997) | 自动爬取 |
+| Smithery | — | 尚未收录（计划提交） |
+| MCP Registry（官方） | — | 尚未收录（计划提交） |
+| Cline 插件市场 | — | 尚未收录（计划提交） |
 
-无论从哪个目录跳过来，安装方式都是同一条：`npx -y oed-mcp`。
+无论从 npm 还是哪个自动收录的目录跳过来，安装方式都是同一条：`npx -y oed-mcp`。
 
 ## 更多场景
 
