@@ -159,18 +159,18 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 > **状态的含义** —— 状态词中英文 README 统一写法，不做翻译。
 >
 > - **Native** —— 平台用自己的机制就能发现并添加 `oed`，无需任何脚本：应用内商店搜索（扣子——插件商店搜 **oed**），或官方包渠道按名安装（Qwen Code——`qwen extensions install oed-mcp` 从 npm 拉取，前提是 npm 包里带上 `qwen-extension.json` 清单）。
-> - **Auto-discover** —— 平台目录自动收录，无需人工提交：要么是官方爬虫（Gemini CLI 的 [extension gallery](https://geminicli.com/extensions) 盯着 `gemini-cli-extension` GitHub topic），要么是自动爬 npm 的目录站（下面的 Glama、mcp.so）。目前还没有哪个 Agent 平台对我们生效——Gemini 的 gallery 尚未索引到仓库，收录后 Gemini CLI 即转为 Auto-discover。
+> - **Auto-discover** —— 平台目录自动收录，无需人工提交：要么是官方爬虫（Gemini CLI 的 [extension gallery](https://geminicli.com/extensions) 盯着 `gemini-cli-extension` GitHub topic），要么是自动爬 npm 的目录站（下面的 Glama）。目前还没有哪个 Agent 平台对我们生效——Gemini 的 gallery 尚未索引到仓库，收录后 Gemini CLI 即转为 Auto-discover。
 > - **Shell-install** —— 平台任何目录都还没有收录 `oed`，用一条命令接入：`install.sh <client>`，或表中等价的手动命令。Gemini CLI 目前落在这里——它原生的 `extensions install` 机制通过脚本完全可用，只是官方 gallery 还没列出我们。
 
 MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP server 首次调用会自动引导安装 `oed` CLI，所以客户端侧只需要做接入这一步。
 
-> **MCP 目录收录** —— `oed-mcp` 目前能被搜到的地方。Glama 和 mcp.so 是自动爬 npm 收录的（真正的自动发现）；npm 是我们自己发布的；其余尚未收录、计划提交：
+> **MCP 目录收录** —— `oed-mcp` 目前能被搜到的地方。Glama 是自动爬 npm 收录的（真正的自动发现）；npm 是我们自己发布的；mcp.so 曾自动收录、现已下架（复查 404）；其余尚未收录：
 
 | 目录 | 收录页 | 来源 |
 |----------|--------|------|
 | npm | [npmjs.com/package/oed-mcp](https://www.npmjs.com/package/oed-mcp) | 我们发布 |
 | Glama | [glama.ai/mcp/servers/Hourunze1997/oed-mcp](https://glama.ai/mcp/servers/Hourunze1997/oed-mcp) | 自动爬取 |
-| mcp.so | [mcp.so/server/oed-mcp/Hourunze1997](https://mcp.so/server/oed-mcp/Hourunze1997) | 自动爬取 |
+| mcp.so | — | 曾自动收录，现已下架（2026-11 复查 404） |
 | Smithery | — | 尚未收录（计划提交） |
 | MCP Registry（官方） | — | 尚未收录（计划提交） |
 | Cline 插件市场 | — | 尚未收录（计划提交） |

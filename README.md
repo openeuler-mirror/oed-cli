@@ -200,18 +200,18 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 > **What the statuses mean** — status tokens are the same in both the English and Chinese README, not translated.
 >
 > - **Native** — the platform discovers and adds `oed` through its own mechanisms, no script involved: an in-app store search (Coze — plugin store, search **oed**) or an official package channel installable by name (Qwen Code — `qwen extensions install oed-mcp` pulls it from npm, which requires the `qwen-extension.json` manifest shipped in the npm package).
-> - **Auto-discover** — the platform's catalog indexes `oed-mcp` on its own, no manual listing: an official crawler (Gemini CLI's [extension gallery](https://geminicli.com/extensions) watches the `gemini-cli-extension` GitHub topic) or an npm-crawling directory site (Glama, mcp.so below). No agent platform has this working for `oed` yet — Gemini CLI's gallery hasn't indexed the repo so far; once it does, Gemini CLI moves up to Auto-discover.
+> - **Auto-discover** — the platform's catalog indexes `oed-mcp` on its own, no manual listing: an official crawler (Gemini CLI's [extension gallery](https://geminicli.com/extensions) watches the `gemini-cli-extension` GitHub topic) or an npm-crawling directory site (Glama below). No agent platform has this working for `oed` yet — Gemini CLI's gallery hasn't indexed the repo so far; once it does, Gemini CLI moves up to Auto-discover.
 > - **Shell-install** — no catalog on the platform lists `oed` yet, so one command wires it up: `install.sh <client>`, or the equivalent manual command in the table. Gemini CLI sits here today — its native `extensions install` works fine through the script even before the gallery lists us.
 
 MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
 
-> **MCP directories** — where `oed-mcp` is already discoverable. Glama and mcp.so crawled npm on their own (true auto-discover); npm is our own publish; the rest are not listed yet:
+> **MCP directories** — where `oed-mcp` is already discoverable. Glama crawled npm on its own (true auto-discover); npm is our own publish; the rest are not listed — mcp.so listed us once and has since dropped the page (404 on recheck):
 
 | Directory | Listing | How it got there |
 |----------|--------|------------------|
 | npm | [npmjs.com/package/oed-mcp](https://www.npmjs.com/package/oed-mcp) | published by us |
 | Glama | [glama.ai/mcp/servers/Hourunze1997/oed-mcp](https://glama.ai/mcp/servers/Hourunze1997/oed-mcp) | auto-crawled |
-| mcp.so | [mcp.so/server/oed-mcp/Hourunze1997](https://mcp.so/server/oed-mcp/Hourunze1997) | auto-crawled |
+| mcp.so | — | was auto-crawled, since delisted (404, rechecked 2026-11) |
 | Smithery | — | not listed yet (submission planned) |
 | MCP Registry (official) | — | not listed yet (submission planned) |
 | Cline marketplace | — | not listed yet (submission planned) |
