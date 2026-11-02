@@ -40,8 +40,8 @@ Clients:
   trae-cn      Trae 中国版           ~/.trae-cn/mcp.json
   codex        Codex CLI            ~/.codex/config.toml
   dsh          dsh                  dsh plugin add oed-mcp
-  gemini       Gemini CLI           gemini extensions install Hourunze1997/oed-mcp
-  qwen         Qwen Code            qwen extensions install Hourunze1997/oed-mcp
+  gemini       Gemini CLI           gemini extensions install https://github.com/Hourunze1997/oed-mcp
+  qwen         Qwen Code            qwen extensions install https://github.com/Hourunze1997/oed-mcp:oed
   openclaw     OpenClaw             openclaw mcp add oed -- npx -y oed-mcp
   hermes       Hermes Agent         ~/.hermes/config.yaml
   kimi         Kimi Code CLI        ~/.kimi-code/mcp.json
@@ -361,6 +361,34 @@ register_pi() {
   fi
 }
 
+# Qwen Code resolves sources in its own order: a bare name goes to its npm
+# channel (needs qwen-extension.json inside the package — npm 0.2.0 lacks it),
+# and a plain git URL of our repo trips an interactive claude-marketplace
+# picker (the repo also ships .claude-plugin/marketplace.json), so use the
+# non-interactive url:plugin form. Failed installs exit 0 — verify via list.
+register_qwen() {
+  if ! have qwen; then
+    warn "qwen CLI not found. Manual: qwen extensions install https://github.com/Hourunze1997/$MCP_NPM:oed"
+    return 0
+  fi
+  if qwen extensions list 2>/dev/null | grep -q '✓ oed'; then
+    ok "Qwen Code already has the oed extension (verify: qwen extensions list)"
+    return 0
+  fi
+  qwen extensions install "$MCP_NPM" --consent >/dev/null 2>&1 || true
+  if qwen extensions list 2>/dev/null | grep -q '✓ oed'; then
+    ok "Registered via the npm channel: qwen extensions install $MCP_NPM"
+    return 0
+  fi
+  qwen extensions install "https://github.com/Hourunze1997/$MCP_NPM:oed" --consent >/dev/null 2>&1 || true
+  if qwen extensions list 2>/dev/null | grep -q '✓ oed'; then
+    ok "Registered via the git channel: qwen extensions install https://github.com/Hourunze1997/$MCP_NPM:oed"
+  else
+    warn "qwen extensions install failed silently (it exits 0 on errors). Manual:"
+    printf '      qwen extensions install https://github.com/Hourunze1997/%s:oed\n' "$MCP_NPM"
+  fi
+}
+
 # Nanobot nests MCP servers under tools.mcpServers in ~/.nanobot/config.json,
 # not at the top level — needs its own merge, register_json would miss it.
 register_nanobot() {
@@ -420,8 +448,11 @@ do_register() {
     pi)        register_pi ;;
     nanobot)   register_nanobot ;;
     kiro)      register_json "$HOME/.kiro/settings/mcp.json" ;;
-    gemini)    if have gemini; then gemini extensions install "Hourunze1997/$MCP_NPM"; else warn "gemini CLI not found. Manual: gemini extensions install Hourunze1997/$MCP_NPM"; fi ;;
-    qwen)      if have qwen; then qwen extensions install "Hourunze1997/$MCP_NPM"; else warn "qwen CLI not found. Manual: qwen extensions install Hourunze1997/$MCP_NPM"; fi ;;
+    # Source must be a full git URL or local path — owner/repo shorthand
+    # fails with "Install source not found" (verified on gemini 0.66.0).
+    # --consent skips the interactive third-party-code prompt.
+    gemini)    if have gemini; then gemini extensions install "https://github.com/Hourunze1997/$MCP_NPM" --consent; else warn "gemini CLI not found. Manual: gemini extensions install https://github.com/Hourunze1997/$MCP_NPM"; fi ;;
+    qwen)      register_qwen ;;
     cli-only)  ok "Skipping client configuration." ;;
     *)         die "Unknown client '$1'. Run: $0 list" ;;
   esac
@@ -446,8 +477,8 @@ do_unregister() {
     pi)        unregister_json "$HOME/.pi/agent/mcp.json" ;;
     nanobot)   unregister_nanobot ;;
     kiro)      unregister_json "$HOME/.kiro/settings/mcp.json" ;;
-    gemini)    warn "Remove manually: gemini extensions list, then uninstall the oed extension." ;;
-    qwen)      warn "Remove manually: qwen extensions list, then uninstall the oed extension." ;;
+    gemini)    if have gemini; then gemini extensions uninstall oed && ok "Removed the oed extension from Gemini CLI" || warn "'oed' extension not found in Gemini CLI"; else warn "gemini CLI not found"; fi ;;
+    qwen)      if have qwen; then qwen extensions uninstall oed && ok "Removed the oed extension from Qwen Code" || warn "'oed' extension not found in Qwen Code"; else warn "qwen CLI not found"; fi ;;
     cli-only)  ok "Nothing to unregister." ;;
     *)         die "Unknown client '$1'. Run: $0 list" ;;
   esac
