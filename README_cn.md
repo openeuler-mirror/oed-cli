@@ -132,8 +132,8 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 | Cursor | 脚本安装 | `install.sh cursor` |
 | Trae / Trae 中国版 | 脚本安装 | `install.sh trae` / `install.sh trae-cn` |
 | Codex CLI | 脚本安装 | `install.sh codex` |
-| Gemini CLI | 暂不支持 | `install.sh gemini` |
-| Qwen Code | 暂不支持 | `install.sh qwen` |
+| Gemini CLI | Shell-install | `install.sh gemini` |
+| Qwen Code | Shell-install | `install.sh qwen` |
 | dsh | 脚本安装 | `install.sh dsh` |
 | Cline / 其他 MCP 客户端 | 脚本安装 | 在其配置中加入 `npx -y oed-mcp` |
 | 扣子 Coze（云端） | 原生上架 | 扣子插件商店搜索 **oed** |
@@ -141,9 +141,8 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 > **状态的含义** —— 状态词中英文 README 统一写法，不做翻译。
 >
 > - **Native** —— 平台自带商店 / 市场，`oed` 能直接搜到、在界面里一键添加，无需任何脚本。目前只有扣子（插件商店搜 **oed**）。
-> - **Auto-discover** —— 平台目录自动收录，无需人工提交：要么是官方爬虫（Gemini CLI 的 [extension gallery](https://geminicli.com/extensions) 盯着 `gemini-cli-extension` GitHub topic），要么是自动爬 npm 的目录站（下面的 Glama、mcp.so）。目前还没有哪个 Agent 平台对我们生效。
-> - **Shell-install** —— 平台没有可被收录的扩展目录机制，用一条命令接入：`install.sh <client>`，或表中等价的手动命令。
-> - **暂不支持** —— 平台有官方扩展目录，但 `oed-mcp` 目前没被收录（Gemini CLI、Qwen Code）。下表的 `install.sh` 命令仍然可用，该状态只表示平台自己的目录暂未收录我们。
+> - **Auto-discover** —— 平台目录自动收录，无需人工提交：要么是官方爬虫（Gemini CLI 的 [extension gallery](https://geminicli.com/extensions) 盯着 `gemini-cli-extension` GitHub topic），要么是自动爬 npm 的目录站（下面的 Glama、mcp.so）。目前还没有哪个 Agent 平台对我们生效——Gemini 的 gallery 尚未索引到仓库，收录后 Gemini CLI 即转为 Auto-discover。
+> - **Shell-install** —— 平台任何目录都还没有收录 `oed`，用一条命令接入：`install.sh <client>`，或表中等价的手动命令。Gemini CLI / Qwen Code 目前落在这里——它们原生的 `extensions install` 机制通过脚本完全可用，只是官方目录还没列出我们。
 
 MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP server 首次调用会自动引导安装 `oed` CLI，所以客户端侧只需要做接入这一步。
 

@@ -173,8 +173,8 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 | Cursor | Shell-install | `install.sh cursor` |
 | Trae / Trae 中国版 | Shell-install | `install.sh trae` / `install.sh trae-cn` |
 | Codex CLI | Shell-install | `install.sh codex` |
-| Gemini CLI | 暂不支持 | `install.sh gemini` |
-| Qwen Code | 暂不支持 | `install.sh qwen` |
+| Gemini CLI | Shell-install | `install.sh gemini` |
+| Qwen Code | Shell-install | `install.sh qwen` |
 | dsh | Shell-install | `install.sh dsh` |
 | Cline / any other MCP client | Shell-install | add `npx -y oed-mcp` to its config |
 | Coze (cloud) | Native | Coze plugin store — search **oed** |
@@ -182,9 +182,8 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 > **What the statuses mean** — status tokens are the same in both the English and Chinese README, not translated.
 >
 > - **Native** — the platform runs its own store/marketplace and `oed` is searchable right in it: users add it in-app, no script involved. Today that's Coze only (plugin store, search **oed**).
-> - **Auto-discover** — the platform's catalog indexes `oed-mcp` on its own, no manual listing: an official crawler (Gemini CLI's [extension gallery](https://geminicli.com/extensions) watches the `gemini-cli-extension` GitHub topic) or an npm-crawling directory site (Glama, mcp.so below). No agent platform has this working for `oed` yet.
-> - **Shell-install** — the platform has no extension catalog to be listed in; one command wires it up: `install.sh <client>`, or the equivalent manual command in the table.
-> - **暂不支持** — the platform has an official extension catalog, but `oed-mcp` isn't listed there today (Gemini CLI, Qwen Code). The `install.sh` line still wires them up — the status only means the platform's own catalog doesn't list us yet.
+> - **Auto-discover** — the platform's catalog indexes `oed-mcp` on its own, no manual listing: an official crawler (Gemini CLI's [extension gallery](https://geminicli.com/extensions) watches the `gemini-cli-extension` GitHub topic) or an npm-crawling directory site (Glama, mcp.so below). No agent platform has this working for `oed` yet — Gemini CLI's gallery hasn't indexed the repo so far; once it does, Gemini CLI moves up to Auto-discover.
+> - **Shell-install** — no catalog on the platform lists `oed` yet, so one command wires it up: `install.sh <client>`, or the equivalent manual command in the table. Gemini CLI / Qwen Code sit here today — their native `extensions install` works fine through the script even before their catalogs list us.
 
 MCP needs Node ≥ 18 (`npx`); the CLI needs Python ≥ 3.10. The MCP server bootstraps the `oed` CLI automatically on first use, so the client-side setup is the only step.
 
