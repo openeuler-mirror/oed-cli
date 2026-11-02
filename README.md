@@ -174,14 +174,14 @@ No secrets are handled. Most gateway services work anonymously; for the ones tha
 | Trae / Trae 中国版 | Shell-install | `install.sh trae` / `install.sh trae-cn` |
 | Codex CLI | Shell-install | `install.sh codex` |
 | Gemini CLI | Shell-install | `install.sh gemini` |
-| Qwen Code | Shell-install | `install.sh qwen` |
+| Qwen Code | Native | `qwen extensions install oed-mcp` (npm channel) · or `install.sh qwen` |
 | dsh | Shell-install | `install.sh dsh` |
 | Cline / any other MCP client | Shell-install | add `npx -y oed-mcp` to its config |
 | Coze (cloud) | Native | Coze plugin store — search **oed** |
 
 > **What the statuses mean** — status tokens are the same in both the English and Chinese README, not translated.
 >
-> - **Native** — the platform runs its own store/marketplace and `oed` is searchable right in it: users add it in-app, no script involved. Today that's Coze only (plugin store, search **oed**).
+> - **Native** — the platform discovers and adds `oed` through its own mechanisms, no script involved: an in-app store search (Coze — plugin store, search **oed**) or an official package channel installable by name (Qwen Code — `qwen extensions install oed-mcp` pulls it from npm, which requires the `qwen-extension.json` manifest shipped in the npm package).
 > - **Auto-discover** — the platform's catalog indexes `oed-mcp` on its own, no manual listing: an official crawler (Gemini CLI's [extension gallery](https://geminicli.com/extensions) watches the `gemini-cli-extension` GitHub topic) or an npm-crawling directory site (Glama, mcp.so below). No agent platform has this working for `oed` yet — Gemini CLI's gallery hasn't indexed the repo so far; once it does, Gemini CLI moves up to Auto-discover.
 > - **Shell-install** — no catalog on the platform lists `oed` yet, so one command wires it up: `install.sh <client>`, or the equivalent manual command in the table. Gemini CLI / Qwen Code sit here today — their native `extensions install` works fine through the script even before their catalogs list us.
 
