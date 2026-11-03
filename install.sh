@@ -223,21 +223,62 @@ print(" ✓ Removed [mcp_servers.oed] block" if "".join(out) != "".join(lines) e
 PY
 }
 
-# OpenClaw keeps MCP servers under mcp.servers in ~/.openclaw/openclaw.json;
-# its own CLI does the config edit and a live probe before saving.
+# OpenClaw keeps MCP servers under mcp.servers in ~/.openclaw/openclaw.json.
+# Old versions ship 'mcp show' but no 'mcp add', and some builds exit 0 on
+# unknown subcommands, so probing --help lies — attempt the real add, then
+# write the config ourselves (same shape the CLI reads) as the fallback.
 register_openclaw() {
+  local f="$HOME/.openclaw/openclaw.json"
   if have openclaw && openclaw mcp show oed >/dev/null 2>&1; then
     ok "OpenClaw already has an 'oed' MCP server (verify: openclaw mcp show oed)"
     return
   fi
-  # Attempt-and-fallback: old versions lack the 'mcp add' subcommand entirely,
-  # and some reject unknown subcommands with exit 0, so probing --help lies.
+  if [ -f "$f" ] && grep -q '"oed"' "$f"; then
+    ok "OpenClaw already has an 'oed' MCP server ($f)"
+    return
+  fi
   if have openclaw && openclaw mcp add oed --command npx --arg -y --arg "$MCP_NPM" 2>/dev/null; then
     ok "Registered: openclaw mcp add oed --command npx --arg -y --arg $MCP_NPM"
   else
-    warn "openclaw CLI missing or too old for 'mcp add' (needs v0.30+). Add under mcp.servers in ~/.openclaw/openclaw.json:"
-    printf '      "oed": { "command": "npx", "args": ["-y", "%s"] }\n' "$MCP_NPM"
+    backup "$f"
+    mkdir -p "$(dirname "$f")"
+    python3 - "$f" "$MCP_ARGS" <<'PY'
+import json, os, sys
+path, args = sys.argv[1], json.loads(sys.argv[2])
+data = {}
+if os.path.exists(path) and os.path.getsize(path) > 0:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except json.JSONDecodeError as e:
+        sys.exit(f"✗ {path} is not valid JSON ({e}). Fix or remove it and re-run — a backup was just written to {path}.oed-backup.")
+data.setdefault("mcp", {}).setdefault("servers", {})["oed"] = {"command": "npx", "args": args}
+os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2, ensure_ascii=False)
+    fh.write("\n")
+PY
+    ok "Registered oed MCP server in $f (mcp.servers — openclaw mcp show oed to verify)"
   fi
+}
+
+unregister_openclaw() {
+  local f="$HOME/.openclaw/openclaw.json"
+  [ -f "$f" ] || { warn "No $f — nothing to do"; return 0; }
+  python3 - "$f" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh)
+removed = data.get("mcp", {}).get("servers", {}).pop("oed", None)
+if removed is not None:
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    print(f" ✓ Removed oed from {path}")
+else:
+    print(f" ! oed not found in {path}")
+PY
 }
 
 # Hermes Agent has no generic CLI add command — its MCP servers are a YAML
@@ -361,6 +402,24 @@ register_pi() {
   fi
 }
 
+# Gemini CLI errors on a duplicate install ("already installed", exit 1), so
+# check the extension list first. Source must be a full git URL or local path
+# — owner/repo shorthand fails with "Install source not found" (verified on
+# gemini 0.66.0); --consent skips the interactive third-party-code prompt.
+register_gemini() {
+  if ! have gemini; then
+    warn "gemini CLI not found. Manual: gemini extensions install https://github.com/Hourunze1997/$MCP_NPM"
+    return 0
+  fi
+  # gemini prints the listing to stderr, not stdout — hence 2>&1.
+  if gemini extensions list 2>&1 | grep -q '✓ oed'; then
+    ok "Gemini CLI already has the oed extension (verify: gemini extensions list)"
+    return 0
+  fi
+  gemini extensions install "https://github.com/Hourunze1997/$MCP_NPM" --consent &&
+    ok "Installed the oed extension (verify: gemini extensions list)"
+}
+
 # Qwen Code resolves sources in its own order: a bare name goes to its npm
 # channel (needs qwen-extension.json inside the package — npm 0.2.0 lacks it),
 # and a plain git URL of our repo trips an interactive claude-marketplace
@@ -371,17 +430,17 @@ register_qwen() {
     warn "qwen CLI not found. Manual: qwen extensions install https://github.com/Hourunze1997/$MCP_NPM:oed"
     return 0
   fi
-  if qwen extensions list 2>/dev/null | grep -q '✓ oed'; then
+  if qwen extensions list 2>&1 | grep -q '✓ oed'; then
     ok "Qwen Code already has the oed extension (verify: qwen extensions list)"
     return 0
   fi
   qwen extensions install "$MCP_NPM" --consent >/dev/null 2>&1 || true
-  if qwen extensions list 2>/dev/null | grep -q '✓ oed'; then
+  if qwen extensions list 2>&1 | grep -q '✓ oed'; then
     ok "Registered via the npm channel: qwen extensions install $MCP_NPM"
     return 0
   fi
   qwen extensions install "https://github.com/Hourunze1997/$MCP_NPM:oed" --consent >/dev/null 2>&1 || true
-  if qwen extensions list 2>/dev/null | grep -q '✓ oed'; then
+  if qwen extensions list 2>&1 | grep -q '✓ oed'; then
     ok "Registered via the git channel: qwen extensions install https://github.com/Hourunze1997/$MCP_NPM:oed"
   else
     warn "qwen extensions install failed silently (it exits 0 on errors). Manual:"
@@ -448,10 +507,7 @@ do_register() {
     pi)        register_pi ;;
     nanobot)   register_nanobot ;;
     kiro)      register_json "$HOME/.kiro/settings/mcp.json" ;;
-    # Source must be a full git URL or local path — owner/repo shorthand
-    # fails with "Install source not found" (verified on gemini 0.66.0).
-    # --consent skips the interactive third-party-code prompt.
-    gemini)    if have gemini; then gemini extensions install "https://github.com/Hourunze1997/$MCP_NPM" --consent; else warn "gemini CLI not found. Manual: gemini extensions install https://github.com/Hourunze1997/$MCP_NPM"; fi ;;
+    gemini)    register_gemini ;;
     qwen)      register_qwen ;;
     cli-only)  ok "Skipping client configuration." ;;
     *)         die "Unknown client '$1'. Run: $0 list" ;;
@@ -466,7 +522,7 @@ do_unregister() {
     trae-cn)   unregister_json "$HOME/.trae-cn/mcp.json" ;;
     codex)     unregister_codex ;;
     dsh)       warn "Remove manually: dsh plugin --profile <name> remove $MCP_NPM (check the profile's bundle patch)." ;;
-    openclaw)  if have openclaw; then openclaw mcp unset oed 2>/dev/null && ok "Removed oed from OpenClaw" || warn "'oed' not found in OpenClaw config"; else warn "openclaw CLI not found — remove 'oed' under mcp.servers in ~/.openclaw/openclaw.json"; fi ;;
+    openclaw)  unregister_openclaw ;;
     hermes)    unregister_hermes ;;
     kimi)      unregister_json "${KIMI_CODE_HOME:-$HOME/.kimi-code}/mcp.json" ;;
     vscode)    for f in "$HOME/.config/Code/User/mcp.json" "$HOME/Library/Application Support/Code/User/mcp.json"; do
