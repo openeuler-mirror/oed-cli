@@ -36,8 +36,8 @@ Usage:
 Clients:
   claude       Claude Code          claude mcp add oed -- npx -y oed-mcp
   cursor       Cursor               ~/.cursor/mcp.json
-  trae         Trae (intl)          ~/.trae/mcp.json
-  trae-cn      Trae 中国版           ~/.trae-cn/mcp.json
+  trae         Trae (intl)          ~/.config/Trae/User/mcp.json
+  trae-cn      Trae 中国版           ~/.config/Trae CN|Trae-CN/User/mcp.json
   codex        Codex CLI            ~/.codex/config.toml
   dsh          dsh                  dsh plugin add oed-mcp
   gemini       Gemini CLI           gemini extensions install https://github.com/Hourunze1997/oed-mcp
@@ -494,8 +494,14 @@ do_register() {
   case "$1" in
     claude)    register_claude ;;
     cursor)    register_json "$HOME/.cursor/mcp.json" ;;
-    trae)      register_json "$HOME/.trae/mcp.json" ;;
-    trae-cn)   register_json "$HOME/.trae-cn/mcp.json" ;;
+    # Trae reads global MCP from <user-data-dir>/User/mcp.json — verified on Trae 1.107.1:
+    # its own "Configure Manually" writes that file, and a server defined only in
+    # ~/.trae/mcp.json is invisible to it (that path is workspace-level, like
+    # .vscode/mcp.json). Trae-CN ships no fetchable Linux binary; same VS Code-fork
+    # convention assumed, so both plausible product-dir spellings are written.
+    trae)      register_json "$HOME/.config/Trae/User/mcp.json" ;;
+    trae-cn)   register_json "$HOME/.config/Trae CN/User/mcp.json"
+               register_json "$HOME/.config/Trae-CN/User/mcp.json" ;;
     codex)     register_codex ;;
     dsh)       register_dsh ;;
     openclaw)  register_openclaw ;;
@@ -518,8 +524,12 @@ do_unregister() {
   case "$1" in
     claude)    if have claude; then claude mcp remove -s user oed 2>/dev/null || claude mcp remove oed 2>/dev/null || warn "'oed' not found in Claude Code config"; else warn "claude CLI not found"; fi ;;
     cursor)    unregister_json "$HOME/.cursor/mcp.json" ;;
-    trae)      unregister_json "$HOME/.trae/mcp.json" ;;
-    trae-cn)   unregister_json "$HOME/.trae-cn/mcp.json" ;;
+    # also cleans the legacy ~/.trae*/mcp.json paths written by older install.sh versions
+    trae)      unregister_json "$HOME/.config/Trae/User/mcp.json"
+               unregister_json "$HOME/.trae/mcp.json" ;;
+    trae-cn)   unregister_json "$HOME/.config/Trae CN/User/mcp.json"
+               unregister_json "$HOME/.config/Trae-CN/User/mcp.json"
+               unregister_json "$HOME/.trae-cn/mcp.json" ;;
     codex)     unregister_codex ;;
     dsh)       warn "Remove manually: dsh plugin --profile <name> remove $MCP_NPM (check the profile's bundle patch)." ;;
     openclaw)  unregister_openclaw ;;
@@ -546,6 +556,10 @@ detect_client() {
   done
   if have code; then echo vscode; return 0; fi
   if have kiro-cli; then echo kiro; return 0; fi
+  for d in "$HOME/.config/Trae CN" "$HOME/.config/Trae-CN"; do
+    if [ -d "$d" ]; then echo trae-cn; return 0; fi
+  done
+  if [ -d "$HOME/.config/Trae" ]; then echo trae; return 0; fi
   for d in "$HOME/.cursor" "$HOME/.codex" "$HOME/.trae" "$HOME/.trae-cn" "$HOME/.openclaw" "$HOME/.hermes" "$HOME/.gemini/antigravity" "$HOME/.kiro" "$HOME/.nanobot" "$HOME/.pi"; do
     if [ -d "$d" ]; then basename "$d" | sed 's/^\.//'; return 0; fi
   done
