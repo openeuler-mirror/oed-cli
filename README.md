@@ -166,6 +166,17 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
 ```
 
+Windows (PowerShell 5.1+ / pwsh) — `install.ps1` is a full port of `install.sh` with the same clients and flags:
+
+```powershell
+powershell -c "irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1 | iex"
+# pipe-to-iex cannot take arguments — use a scriptblock to pick a client or uninstall
+powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
+powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) -Uninstall cursor"
+```
+
+Windows differences: the MCP launch command is registered as `cmd /c npx -y oed-mcp` (native clients cannot spawn `npx.cmd` directly), and the CLI is installed with the `oed-cli[os-keyring-windows]` keyring backend (DPAPI / Credential Manager — needed by `oed login` / `oed ag login` to store tokens).
+
 What it does:
 
 1. Installs the `oed` CLI and verifies `oed --version`.
