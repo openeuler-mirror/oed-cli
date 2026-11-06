@@ -158,13 +158,15 @@ The first `oed <service> <operation>` call after install will pull a fresh disco
 
 ## One-line install: CLI + MCP
 
-The installer does two things: installs the `oed` CLI (pipx only, into its own venv — the script bootstraps pipx via the system package manager if it is missing; skipped when `oed` is already on PATH; `OED_PYTHON=python3.10` pins the Python the venv uses), then registers the [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server with your agent client — so any MCP-capable agent can drive every openEuler service:
+The installer does two things: installs the `oed` CLI (pipx → uv → pip, skipped when `oed` is already on PATH), then registers the [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server with your agent client — so any MCP-capable agent can drive every openEuler service:
 
 ```bash
 # auto-detect the client, or pick one explicitly
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
 ```
+
+pipx is required — `oed` installs into an isolated pipx venv: the system Python stays untouched and uninstall is clean (the script installs pipx automatically if missing).
 
 Windows (PowerShell 5.1+ / pwsh) — `install.ps1` is a full port of `install.sh` with the same clients and flags:
 
