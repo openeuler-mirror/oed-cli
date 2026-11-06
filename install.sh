@@ -72,10 +72,10 @@ EOF
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # ensure_path <dir> - put <dir> on PATH for this session and future shells.
-# pipx/uv/`pip install --user` all drop scripts into ~/.local/bin, which is
-# often NOT on PATH yet - without this the freshly installed `oed` stays
-# invisible. Persistence is marker-delimited and idempotent: re-runs never
-# append a second block, and an rc file the user already configured skips it.
+# pipx drops app shims into ~/.local/bin, which is often NOT on PATH yet -
+# without this the freshly installed `oed` stays invisible. Persistence is
+# marker-delimited and idempotent: re-runs never append a second block, and
+# an rc file the user already configured skips it.
 ensure_path() {
   local dir="$1" rc
   [ -n "$dir" ] && [ -d "$dir" ] || return 0
@@ -102,51 +102,50 @@ install_cli() {
     ok "oed CLI already installed: $(oed --version 2>/dev/null | head -1 || echo 'oed')"
     return
   fi
-  info "Installing oed CLI via pip..."
-  if ! have pipx && ! have uv; then
-    # PEP 668 (Ubuntu 23.04+ / Debian 12+): the system pip refuses ALL direct
-    # installs, including `pip install --user` - so the pip fallback below
-    # would die too. pipx sidesteps the whole problem with per-app venvs:
-    # bootstrap it from apt before falling through.
-    if ls /usr/lib/python3*/EXTERNALLY-MANAGED >/dev/null 2>&1; then
-      __sudo=""
-      [ "$(id -u)" -ne 0 ] && have sudo && __sudo="sudo"
-      info "PEP 668 system detected - installing pipx via apt first ..."
-      $__sudo apt-get install -y pipx >/dev/null 2>&1 || warn "apt install pipx failed - install pipx manually (sudo apt install pipx) and re-run."
-    fi
+  # pipx only, by design: oed gets its own venv (clean uninstall, zero
+  # interference with apt-managed Python) and it is immune to PEP 668, which
+  # locks the system pip on Ubuntu 23.04+/Debian 12+ - including
+  # `pip install --user`. Never degrade to bare pip.
+  if ! have pipx; then
+    info "pipx not found - installing it first ..."
+    install_pipx || true
   fi
-  # PEP 668 second line of defence: if we still end up at plain pip on an
-  # externally-managed system (pipx bootstrap failed / no apt), add the
-  # escape flag. With --user it only writes to ~/.local - never the
-  # apt-managed /usr paths - so the risk stays contained.
-  local pip_flags=""
-  if ls /usr/lib/python3*/EXTERNALLY-MANAGED >/dev/null 2>&1; then
-    pip_flags="--break-system-packages"
+  if ! have pipx; then
+    die "pipx is required to install oed. Install it manually and re-run:
+  Debian/Ubuntu:    sudo apt install pipx
+  Fedora/openEuler: sudo dnf install pipx
+  openSUSE:         sudo zypper install python3-pipx
+  Arch:             sudo pacman -S python-pipx
+  macOS:            brew install pipx && pipx ensurepath"
   fi
-  if have pipx; then
-    pipx install oed-cli
-  elif have uv; then
-    uv tool install oed-cli
-  elif have pip3; then
-    [ -n "$pip_flags" ] && warn "system pip is PEP 668 locked - using 'pip3 install --user --break-system-packages' (writes only to ~/.local)"
-    pip3 install --user $pip_flags oed-cli
-  elif have pip; then
-    [ -n "$pip_flags" ] && warn "system pip is PEP 668 locked - using 'pip install --user --break-system-packages' (writes only to ~/.local)"
-    pip install --user $pip_flags oed-cli
-  else
-    die "No pip/pipx/uv found. Install Python 3.10+ first, then re-run."
-  fi
+  info "Installing oed CLI via pipx..."
+  pipx install oed-cli
   ensure_path "$HOME/.local/bin"
-  # macOS python.org builds put `pip install --user` scripts elsewhere.
-  if [ "$(uname -s)" = "Darwin" ]; then
-    local d
-    for d in "$HOME"/Library/Python/*/bin; do
-      [ -d "$d" ] || continue
-      case ":$PATH:" in *":$d:"*) ;; *) export PATH="$d:$PATH" ;; esac
-    done
-  fi
-  have oed || die "pip finished but 'oed' is still not on PATH — open a new terminal and re-run."
+  have oed || die "pipx finished but 'oed' is still not on PATH — open a new terminal and re-run."
   ok "Installed $(oed --version 2>/dev/null | head -1)"
+}
+
+# install_pipx - bootstrap pipx via whatever package manager the system has.
+# Returns non-zero when nothing fits; install_cli then dies with manual
+# instructions rather than falling back to a PEP-668-locked bare pip.
+install_pipx() {
+  local __sudo=""
+  [ "$(id -u)" -ne 0 ] && have sudo && __sudo="sudo"
+  if have apt-get; then
+    $__sudo apt-get install -y pipx
+  elif have dnf; then
+    $__sudo dnf install -y pipx
+  elif have yum; then
+    $__sudo yum install -y pipx
+  elif have zypper; then
+    $__sudo zypper --non-interactive install python3-pipx
+  elif have pacman; then
+    $__sudo pacman -S --noconfirm python-pipx
+  elif have brew; then
+    brew install pipx
+  else
+    return 1
+  fi
 }
 
 check_node() {
