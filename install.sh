@@ -71,6 +71,32 @@ EOF
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# ensure_path <dir> - put <dir> on PATH for this session and future shells.
+# pipx/uv/`pip install --user` all drop scripts into ~/.local/bin, which is
+# often NOT on PATH yet - without this the freshly installed `oed` stays
+# invisible. Persistence is marker-delimited and idempotent: re-runs never
+# append a second block, and an rc file the user already configured skips it.
+ensure_path() {
+  local dir="$1" rc
+  [ -n "$dir" ] && [ -d "$dir" ] || return 0
+  case ":$PATH:" in
+    *":$dir:"*) ;;
+    *) export PATH="$dir:$PATH" ;;
+  esac
+  case "$(basename "${SHELL:-}")" in
+    zsh) rc="$HOME/.zshrc" ;;
+    *)   rc="$HOME/.bashrc" ;;
+  esac
+  [ -f "$rc" ] || rc="$HOME/.profile"
+  if grep -qs 'added by the oed installer' "$rc"; then return 0; fi
+  {
+    echo ''
+    echo '# added by the oed installer - make pipx/uv/pip --user scripts visible'
+    echo 'export PATH="$HOME/.local/bin:$PATH"'
+  } >> "$rc"
+  info "PATH: appended ~/.local/bin to $rc (takes effect in a new terminal, or: source $rc)"
+}
+
 install_cli() {
   if have oed; then
     ok "oed CLI already installed: $(oed --version 2>/dev/null | head -1 || echo 'oed')"
@@ -88,7 +114,16 @@ install_cli() {
   else
     die "No pip/pipx/uv found. Install Python 3.10+ first, then re-run."
   fi
-  have oed || die "pip finished but 'oed' is not on PATH — check ~/.local/bin is on PATH, then re-run."
+  ensure_path "$HOME/.local/bin"
+  # macOS python.org builds put `pip install --user` scripts elsewhere.
+  if [ "$(uname -s)" = "Darwin" ]; then
+    local d
+    for d in "$HOME"/Library/Python/*/bin; do
+      [ -d "$d" ] || continue
+      case ":$PATH:" in *":$d:"*) ;; *) export PATH="$d:$PATH" ;; esac
+    done
+  fi
+  have oed || die "pip finished but 'oed' is still not on PATH — open a new terminal and re-run."
   ok "Installed $(oed --version 2>/dev/null | head -1)"
 }
 

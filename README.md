@@ -175,7 +175,7 @@ powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/o
 powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) -Uninstall cursor"
 ```
 
-Windows differences: the MCP launch command is registered as `cmd /c npx -y oed-mcp` (native clients cannot spawn `npx.cmd` directly), and the CLI is installed with the `oed-cli[os-keyring-windows]` keyring backend (DPAPI / Credential Manager — needed by `oed login` / `oed ag login` to store tokens).
+Windows differences: the MCP launch command is registered as `cmd /c "npx -y oed-mcp"` (native clients cannot spawn `npx.cmd` directly), and the CLI is installed with the `oed-cli[os-keyring-windows]` keyring backend (DPAPI / Credential Manager — needed by `oed login` / `oed ag login` to store tokens).
 
 What it does:
 

@@ -134,7 +134,7 @@ powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/o
 powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) -Uninstall cursor"
 ```
 
-Windows 侧差异：MCP 启动命令注册为 `cmd /c npx -y oed-mcp`（原生客户端无法直接 spawn `npx.cmd`）；CLI 以 `oed-cli[os-keyring-windows]` 凭据后端安装（DPAPI / Credential Manager——`oed login` / `oed ag login` 存 token 需要）。
+Windows 侧差异：MCP 启动命令注册为 `cmd /c "npx -y oed-mcp"`（原生客户端无法直接 spawn `npx.cmd`）；CLI 以 `oed-cli[os-keyring-windows]` 凭据后端安装（DPAPI / Credential Manager——`oed login` / `oed ag login` 存 token 需要）。
 
 脚本行为：
 
