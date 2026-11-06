@@ -103,6 +103,18 @@ install_cli() {
     return
   fi
   info "Installing oed CLI via pip..."
+  if ! have pipx && ! have uv; then
+    # PEP 668 (Ubuntu 23.04+ / Debian 12+): the system pip refuses ALL direct
+    # installs, including `pip install --user` - so the pip fallback below
+    # would die too. pipx sidesteps the whole problem with per-app venvs:
+    # bootstrap it from apt before falling through.
+    if ls /usr/lib/python3*/EXTERNALLY-MANAGED >/dev/null 2>&1; then
+      __sudo=""
+      [ "$(id -u)" -ne 0 ] && have sudo && __sudo="sudo"
+      info "PEP 668 system detected - installing pipx via apt first ..."
+      $__sudo apt-get install -y pipx >/dev/null 2>&1 || warn "apt install pipx failed - install pipx manually (sudo apt install pipx) and re-run."
+    fi
+  fi
   if have pipx; then
     pipx install oed-cli
   elif have uv; then
