@@ -115,14 +115,24 @@ install_cli() {
       $__sudo apt-get install -y pipx >/dev/null 2>&1 || warn "apt install pipx failed - install pipx manually (sudo apt install pipx) and re-run."
     fi
   fi
+  # PEP 668 second line of defence: if we still end up at plain pip on an
+  # externally-managed system (pipx bootstrap failed / no apt), add the
+  # escape flag. With --user it only writes to ~/.local - never the
+  # apt-managed /usr paths - so the risk stays contained.
+  local pip_flags=""
+  if ls /usr/lib/python3*/EXTERNALLY-MANAGED >/dev/null 2>&1; then
+    pip_flags="--break-system-packages"
+  fi
   if have pipx; then
     pipx install oed-cli
   elif have uv; then
     uv tool install oed-cli
   elif have pip3; then
-    pip3 install --user oed-cli
+    [ -n "$pip_flags" ] && warn "system pip is PEP 668 locked - using 'pip3 install --user --break-system-packages' (writes only to ~/.local)"
+    pip3 install --user $pip_flags oed-cli
   elif have pip; then
-    pip install --user oed-cli
+    [ -n "$pip_flags" ] && warn "system pip is PEP 668 locked - using 'pip install --user --break-system-packages' (writes only to ~/.local)"
+    pip install --user $pip_flags oed-cli
   else
     die "No pip/pipx/uv found. Install Python 3.10+ first, then re-run."
   fi
