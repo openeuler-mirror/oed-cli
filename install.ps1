@@ -4,7 +4,7 @@
   Installs the `oed` CLI (pip) and wires the `oed-mcp` MCP server into one
   agent client's config, so any MCP-capable agent can drive every openEuler
   Infra service. The MCP server itself is `npx -y oed-mcp` (Node >= 18);
-  on native Windows it must be launched as `cmd /c npx -y oed-mcp`.
+  on native Windows it is launched via `cmd /c "npx -y oed-mcp"` (quoted).
   The repo's agent skills (.claude/skills/*) are also copied to
   ~/.claude/skills (receipt-tracked), mirroring install.sh.
 
@@ -25,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 $NpmPkg  = 'oed-mcp'
 # Native Windows clients cannot spawn npx directly (it is npx.cmd, and Node
 # blocks spawning .cmd without a shell) - every MCP entry uses cmd /c.
-$McpEntry = [PSCustomObject]@{ command = 'cmd'; args = @('/c', 'npx', '-y', 'oed-mcp') }
+$McpEntry = [PSCustomObject]@{ command = 'cmd'; args = @('/c', 'npx -y oed-mcp') }
 
 $KimiHome  = if ($env:KIMI_CODE_HOME) { $env:KIMI_CODE_HOME } else { Join-Path $env:USERPROFILE '.kimi-code' }
 $CodexToml = if ($env:CODEX_HOME)     { Join-Path $env:CODEX_HOME 'config.toml' } else { Join-Path $env:USERPROFILE '.codex\config.toml' }
@@ -67,7 +67,14 @@ function Add-UserPath([string]$dir) {
     [Environment]::SetEnvironmentVariable('Path', (($list + $dir) -join ';'), 'User')
     ok "Added to user PATH: $dir (takes effect in new terminals)"
   }
-  if (($env:Path -split ';') -notcontains $dir) { $env:Path += ";$dir" }
+  # Refresh the current process too, via the env-block API with the exact-case
+  # name: on Unix PowerShell $env:Path is a separate variable from the real
+  # PATH, and native-command discovery only consults the real one.
+  $sep = [IO.Path]::PathSeparator
+  $cur = [string][Environment]::GetEnvironmentVariable('PATH', 'Process')
+  if ((($cur -split [regex]::Escape($sep))) -notcontains $dir) {
+    [Environment]::SetEnvironmentVariable('PATH', "$cur$sep$dir", 'Process')
+  }
 }
 
 # ---------------- JSON merge / remove (array-safe serializer) ----------------
@@ -177,30 +184,32 @@ function Install-Cli {
   # Windows for `oed login` / `oed ag login` to store tokens (see README).
   $spec = 'oed-cli[os-keyring-windows]'
   if (have pipx) {
-    pipx install $spec
-    if (-not (have oed)) { Invoke-Quiet { pipx ensurepath }; Add-UserPath (Join-Path $env:USERPROFILE '.local\bin') }
+    Invoke-Quiet { pipx install $spec }
+    Invoke-Quiet { pipx ensurepath }
   }
   elseif (have uv) {
-    uv tool install $spec
-    Add-UserPath (Join-Path $env:USERPROFILE '.local\bin')
+    Invoke-Quiet { uv tool install $spec }
   }
   elseif (have pip3) {
     Invoke-Quiet { pip3 install --user $spec }
-    Add-PipUserScripts
   }
   elseif (have pip) {
     Invoke-Quiet { pip install --user $spec }
-    Add-PipUserScripts
   }
   else { die 'No pip/pipx/uv found. Install Python 3.10+ first (winget install Python.Python.3.12), then re-run.' }
-  if (-not (have oed)) {
-    warn "pip finished but 'oed' is not on PATH in this session"
-    Add-PipUserScripts
+  # PATH handling is unconditional and idempotent: pipx/uv shim into
+  # ~/.local/bin, `pip install --user` into %APPDATA%\Python\Python3XX\Scripts.
+  # Both helpers no-op when the directory is missing or already on PATH, so
+  # every install route ends with the same deterministic PATH treatment.
+  Add-UserPath (Join-Path $env:USERPROFILE '.local\bin')
+  Add-PipUserScripts
+  if (have oed) {
+    $v = $null
+    try { $v = (oed --version 2>$null | Select-Object -First 1) } catch {}
+    ok "Installed $(if ($v) { $v } else { 'oed' })"
+  } else {
+    die "'oed' still not on PATH. A NEW terminal is needed for the updated PATH; if it is still missing there, run 'where.exe oed' and re-run this script."
   }
-  if (-not (have oed)) { die "'oed' still not on PATH. Open a new terminal and re-run, or add %APPDATA%\Python\Python3XX\Scripts to PATH." }
-  $v = $null
-  try { $v = (oed --version 2>$null | Select-Object -First 1) } catch {}
-  ok "Installed $(if ($v) { $v } else { 'oed' })"
 }
 
 function Add-PipUserScripts {
@@ -227,18 +236,42 @@ function Check-Node {
 
 # ---------------- per-client register / unregister ----------------
 
+function Test-ClaudeHasOed {
+  # `claude mcp get oed` exits non-zero on some older CLI versions even when
+  # the server exists, which makes a re-run's duplicate-add look like a
+  # failure. Cross-check with `claude mcp list` before calling it a failure.
+  $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { $out = (claude mcp list 2>&1 | Out-String) } finally { $ErrorActionPreference = $prev }
+  return ($out -match '\boed\b')
+}
+
 function Register-Claude {
   if (have claude) {
-    if ((Invoke-Quiet { claude mcp get oed }) -eq 0) {
+    if ((Invoke-Quiet { claude mcp get oed }) -eq 0 -or (Test-ClaudeHasOed)) {
       ok "Claude Code already has an 'oed' MCP server (verify: claude mcp get oed)"; return
     }
     # -s user: register globally; default local scope binds to cwd only.
-    if ((Invoke-Quiet { claude mcp add -s user oed -- cmd /c npx -y oed-mcp }) -eq 0) {
-      ok "Registered globally: claude mcp add -s user oed -- cmd /c npx -y $NpmPkg"
-    } else { warn 'claude mcp add failed - run it manually inside Claude Code.' }
+    # 'npx -y oed-mcp' is passed as ONE argument (quoted) - cmd then runs it
+    # as a single command line, which is the robust form across claude builds.
+    if ((Invoke-Quiet { claude mcp add -s user oed -- cmd /c 'npx -y oed-mcp' }) -eq 0) {
+      ok "Registered globally: claude mcp add -s user oed -- cmd /c `"npx -y $NpmPkg`""
+    } elseif (Test-ClaudeHasOed) {
+      ok "Claude Code already has an 'oed' MCP server (add reported a duplicate - nothing to do)"
+    } else {
+      # Some claude versions (e.g. 2.1.39 on Windows) reject or mis-handle the
+      # CLI form. ~/.claude.json IS the user-scope store `claude mcp add`
+      # writes to - merge the server there directly, preserving everything else.
+      Set-JsonServer (Join-Path $env:USERPROFILE '.claude.json') @('mcpServers')
+      if (Test-ClaudeHasOed) {
+        ok "Registered oed MCP server in ~/.claude.json (this claude version rejects 'claude mcp add')"
+      } else {
+        warn 'claude mcp add failed - run it manually inside Claude Code:'
+        Write-Host "      claude mcp add -s user oed -- cmd /c `"npx -y $NpmPkg`""
+      }
+    }
   } else {
     warn 'claude CLI not found. Inside Claude Code run manually:'
-    Write-Host "      claude mcp add -s user oed -- cmd /c npx -y $NpmPkg"
+    Write-Host "      claude mcp add -s user oed -- cmd /c `"npx -y $NpmPkg`""
   }
 }
 
@@ -256,7 +289,7 @@ function Register-Codex {
   if ((Test-Path $CodexToml) -and (Select-String -Path $CodexToml -Pattern 'mcp_servers\.oed' -Quiet)) {
     ok "Codex already has an [mcp_servers.oed] entry ($CodexToml)"; return
   }
-  $block = "`n[mcp_servers.oed]`ncommand = `"cmd`"`nargs = [`"/c`", `"npx`", `"-y`", `"$NpmPkg`"]`n"
+  $block = "`n[mcp_servers.oed]`ncommand = `"cmd`"`nargs = [`"/c`", `"npx -y $NpmPkg`"]`n"
   [System.IO.File]::AppendAllText($CodexToml, $block, $NoBom)
   ok "Appended [mcp_servers.oed] to $CodexToml"
 }
@@ -300,7 +333,7 @@ function Register-Hermes {
   backup $f
   $lines = @()
   if ((Test-Path $f) -and ((Get-Item $f).Length -gt 0)) { $lines = [System.IO.File]::ReadAllLines($f) }
-  $child = @('  oed:', '    command: "cmd"', '    args: ["/c", "npx", "-y", "oed-mcp"]')
+  $child = @('  oed:', '    command: "cmd"', '    args: ["/c", "npx -y oed-mcp"]')
 
   $idx = $null; $inline = ''
   for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -368,8 +401,8 @@ function Register-Openclaw {
   if ((Test-Path $f) -and (Select-String -Path $f -Pattern '"oed"' -Quiet)) {
     ok "OpenClaw already has an 'oed' MCP server ($f)"; return
   }
-  if ((have openclaw) -and ((Invoke-Quiet { openclaw mcp add oed --command cmd --arg /c --arg npx --arg -y --arg oed-mcp }) -eq 0)) {
-    ok 'Registered: openclaw mcp add oed --command cmd --arg /c --arg npx --arg -y --arg oed-mcp'
+  if ((have openclaw) -and ((Invoke-Quiet { openclaw mcp add oed --command cmd --arg /c --arg 'npx -y oed-mcp' }) -eq 0)) {
+    ok 'Registered: openclaw mcp add oed --command cmd --arg /c --arg "npx -y oed-mcp"'
   } else {
     Set-JsonServer $f @('mcp', 'servers')   # OpenClaw keeps servers under mcp.servers
     ok "Registered oed MCP server in $f (mcp.servers - verify: openclaw mcp show oed)"
@@ -390,11 +423,11 @@ function Register-Vscode {
   }
   if (have code) {
     # single-quoted literal with \" - survives PS 5.1 native arg quoting
-    Invoke-Quiet { code --add-mcp '{\"name\":\"oed\",\"command\":\"cmd\",\"args\":[\"/c\",\"npx\",\"-y\",\"oed-mcp\"]}' }
+    Invoke-Quiet { code --add-mcp '{\"name\":\"oed\",\"command\":\"cmd\",\"args\":[\"/c\",\"npx -y oed-mcp\"]}' }
     if ($LASTEXITCODE -eq 0) { ok 'Registered oed MCP server (user scope) via code --add-mcp'; return }
   }
   warn "code CLI not found. In VS Code: Command Palette -> 'MCP: Add Server', or manually:"
-  Write-Host '      code --add-mcp "{""name"":""oed"",""command"":""cmd"",""args"":[""/c"",""npx"",""-y"",""oed-mcp""]}"'
+  Write-Host '      code --add-mcp "{""name"":""oed"",""command"":""cmd"",""args"":[""/c"",""npx -y oed-mcp""]}"'
 }
 
 # shared shape for copilot / pi: probe existing config, try the CLI, then JSON
@@ -403,8 +436,8 @@ function Register-CliOrJson([string]$exe, [string]$file, [string]$rootKey) {
     ok "'$exe' already has an 'oed' MCP server ($file)"; return
   }
   if (have $exe) {
-    $rc = Invoke-Quiet { & $exe mcp add oed -- cmd /c npx -y oed-mcp }
-    if ($rc -eq 0) { ok "Registered: $exe mcp add oed -- cmd /c npx -y $NpmPkg"; return }
+    $rc = Invoke-Quiet { & $exe mcp add oed -- cmd /c 'npx -y oed-mcp' }
+    if ($rc -eq 0) { ok "Registered: $exe mcp add oed -- cmd /c `"npx -y $NpmPkg`""; return }
   }
   Set-JsonServer $file @($rootKey)
 }
@@ -609,7 +642,7 @@ Usage:
   .\install-oed.ps1 -Uninstall [client]
 
 Clients:
-  claude       Claude Code          claude mcp add -s user oed -- cmd /c npx -y oed-mcp
+  claude       Claude Code          claude mcp add -s user oed -- cmd /c "npx -y oed-mcp"
   cursor       Cursor               %USERPROFILE%\.cursor\mcp.json
   trae         Trae (intl)          %APPDATA%\Trae\User\mcp.json
   trae-cn      Trae (China)         %APPDATA%\Trae CN|Trae-CN\User\mcp.json
