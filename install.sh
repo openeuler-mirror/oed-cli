@@ -66,16 +66,21 @@ Skills:
   on install (cli-only skips them). Re-run this script to pick up skills
   added upstream; --uninstall removes the ones it installed (tracked in
   .oed-installed; your own skills are never touched).
+
+Environment:
+  OED_REPO     git repo for skills fetch   (default: openeuler/oed-cli)
+  OED_PYTHON   Python the pipx venv uses   (default: pipx's own Python),
+               e.g. OED_PYTHON=python3.10 — needs python3.10-venv
 EOF
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # ensure_path <dir> - put <dir> on PATH for this session and future shells.
-# pipx/uv/`pip install --user` all drop scripts into ~/.local/bin, which is
-# often NOT on PATH yet - without this the freshly installed `oed` stays
-# invisible. Persistence is marker-delimited and idempotent: re-runs never
-# append a second block, and an rc file the user already configured skips it.
+# pipx drops app shims into ~/.local/bin, which is often NOT on PATH yet -
+# without this the freshly installed `oed` stays invisible. Persistence is
+# marker-delimited and idempotent: re-runs never append a second block, and
+# an rc file the user already configured skips it.
 ensure_path() {
   local dir="$1" rc
   [ -n "$dir" ] && [ -d "$dir" ] || return 0
@@ -102,29 +107,57 @@ install_cli() {
     ok "oed CLI already installed: $(oed --version 2>/dev/null | head -1 || echo 'oed')"
     return
   fi
-  info "Installing oed CLI via pip..."
-  if have pipx; then
-    pipx install oed-cli
-  elif have uv; then
-    uv tool install oed-cli
-  elif have pip3; then
-    pip3 install --user oed-cli
-  elif have pip; then
-    pip install --user oed-cli
+  # pipx only, by design: oed gets its own venv (clean uninstall, zero
+  # interference with apt-managed Python) and it is immune to PEP 668, which
+  # locks the system pip on Ubuntu 23.04+/Debian 12+ - including
+  # `pip install --user`. Never degrade to bare pip.
+  if ! have pipx; then
+    info "pipx not found - installing it first ..."
+    install_pipx || true
+  fi
+  if ! have pipx; then
+    die "pipx is required to install oed. Install it manually and re-run:
+  Debian/Ubuntu:    sudo apt install pipx
+  Fedora/openEuler: sudo dnf install pipx
+  openSUSE:         sudo zypper install python3-pipx
+  Arch:             sudo pacman -S python-pipx
+  macOS:            brew install pipx && pipx ensurepath"
+  fi
+  info "Installing oed CLI via pipx..."
+  # OED_PYTHON=<interpreter> pins the Python the pipx venv is built with
+  # (default: whatever Python pipx itself runs under). The interpreter needs
+  # the venv module (e.g. apt install python3.10-venv).
+  if [ -n "$OED_PYTHON" ]; then
+    pipx install --python "$OED_PYTHON" oed-cli
   else
-    die "No pip/pipx/uv found. Install Python 3.10+ first, then re-run."
+    pipx install oed-cli
   fi
   ensure_path "$HOME/.local/bin"
-  # macOS python.org builds put `pip install --user` scripts elsewhere.
-  if [ "$(uname -s)" = "Darwin" ]; then
-    local d
-    for d in "$HOME"/Library/Python/*/bin; do
-      [ -d "$d" ] || continue
-      case ":$PATH:" in *":$d:"*) ;; *) export PATH="$d:$PATH" ;; esac
-    done
-  fi
-  have oed || die "pip finished but 'oed' is still not on PATH — open a new terminal and re-run."
+  have oed || die "pipx finished but 'oed' is still not on PATH — open a new terminal and re-run."
   ok "Installed $(oed --version 2>/dev/null | head -1)"
+}
+
+# install_pipx - bootstrap pipx via whatever package manager the system has.
+# Returns non-zero when nothing fits; install_cli then dies with manual
+# instructions rather than falling back to a PEP-668-locked bare pip.
+install_pipx() {
+  local __sudo=""
+  [ "$(id -u)" -ne 0 ] && have sudo && __sudo="sudo"
+  if have apt-get; then
+    $__sudo apt-get install -y pipx
+  elif have dnf; then
+    $__sudo dnf install -y pipx
+  elif have yum; then
+    $__sudo yum install -y pipx
+  elif have zypper; then
+    $__sudo zypper --non-interactive install python3-pipx
+  elif have pacman; then
+    $__sudo pacman -S --noconfirm python-pipx
+  elif have brew; then
+    brew install pipx
+  else
+    return 1
+  fi
 }
 
 check_node() {

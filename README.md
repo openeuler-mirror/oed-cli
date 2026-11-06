@@ -166,6 +166,8 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
 ```
 
+pipx is required — `oed` installs into an isolated pipx venv: the system Python stays untouched, uninstall is clean, and PEP 668 (Ubuntu 23.04+/Debian 12+ forbid installing with the system pip) doesn't apply; the script installs pipx automatically if missing.
+
 Windows (PowerShell 5.1+ / pwsh) — `install.ps1` is a full port of `install.sh` with the same clients and flags:
 
 ```powershell

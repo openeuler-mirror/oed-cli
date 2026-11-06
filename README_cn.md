@@ -125,6 +125,8 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
 ```
 
+需要 pipx：`oed` 装进 pipx 的独立 venv，不污染系统 Python、卸载干净，也不受 PEP 668 限制（Ubuntu 23.04+/Debian 12+ 禁止用系统 pip 装包）；没装的话脚本会自动装。
+
 Windows（PowerShell 5.1+ / pwsh）——`install.ps1` 是 `install.sh` 的全量移植，客户端与用法一致：
 
 ```powershell
