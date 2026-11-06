@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 
 $NpmPkg  = 'oed-mcp'
 # Native Windows clients cannot spawn npx directly (it is npx.cmd, and Node
-# blocks spawning .cmd without a shell) — every MCP entry uses cmd /c.
+# blocks spawning .cmd without a shell) - every MCP entry uses cmd /c.
 $McpEntry = [PSCustomObject]@{ command = 'cmd'; args = @('/c', 'npx', '-y', 'oed-mcp') }
 
 $KimiHome  = if ($env:KIMI_CODE_HOME) { $env:KIMI_CODE_HOME } else { Join-Path $env:USERPROFILE '.kimi-code' }
@@ -31,9 +31,9 @@ $CodexToml = if ($env:CODEX_HOME)     { Join-Path $env:CODEX_HOME 'config.toml' 
 $NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function info($m) { Write-Host '==> ' -ForegroundColor Blue -NoNewline; Write-Host $m -ForegroundColor Cyan }
-function ok($m)   { Write-Host ' ✓ ' -ForegroundColor Green -NoNewline; Write-Host $m }
+function ok($m)   { Write-Host ' + ' -ForegroundColor Green -NoNewline; Write-Host $m }
 function warn($m) { Write-Host ' ! ' -ForegroundColor Yellow -NoNewline; Write-Host $m }
-function die($m)  { [Console]::Error.WriteLine(' ✗ ' + $m); exit 1 }
+function die($m)  { [Console]::Error.WriteLine(' x ' + $m); exit 1 }
 
 function have([string]$c) { [bool](Get-Command $c -ErrorAction SilentlyContinue) }
 
@@ -69,7 +69,7 @@ function Add-UserPath([string]$dir) {
 
 # PS 5.1's built-in ConvertTo-Json collapses single-element arrays into
 # scalars, which would corrupt unrelated servers already present in the
-# user's config — so the parsed config is serialized by hand instead of
+# user's config - so the parsed config is serialized by hand instead of
 # relying on ConvertTo-Json. The serializer reads children inline and only
 # ever returns strings: PowerShell unrolls a 1-element collection returned
 # from a function into its single element (verified by test), so collections
