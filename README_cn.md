@@ -76,25 +76,50 @@ git clone https://gitcode.com/openeuler/oed-cli && cd oed-cli
 pip install -e .
 ```
 
+**方式四：脚本一键安装（CLI + MCP + Skills打包安装，推荐）**
+
+linux客户端:
+```bash
+# 自动探测客户端，或显式指定
+curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
+curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
+```
+注意：受 PEP 668 限制（Ubuntu 23.04+/Debian 12+ 禁止用系统 pip 装包），该脚本执行时需要安装pipx，然后再将`oed` 装进 pipx 的独立 venv。
+
+
+windows客户端:
+```powershell
+# 自动探测客户端，或显式指定
+powershell -c "irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1 | iex"
+
+powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
+```
+
 安装完成后，验证是否成功：
 
 ```
-oed --version       # → oed, version 0.3.0
+oed --version       # → oed, version 0.3.1
 ```
 
-## 快速开始
+## 快速开始(试一句)
 
+在执行以下涉及到读写的场景时，请确保已登录。
 ```
-pip install oed-cli
-```
-
-打开你的 Agent（OpenCode / Claude / Cursor 等），输入：
-
-```
-请学习 oed --help 有哪些命令？
+oed login     # 登录openEuler OneID
+oed ag login  # 登录atomgit
 ```
 
-Agent 会从网关读取实时服务列表，自己学习有哪些服务、每个操作需要什么参数，不需要提前记命令，也不用先读文档。之后直接用自然语言告诉 Agent 你要做什么，比如“查一下 CVE-2019-10082 的公告”，Agent 会自动选服务、按 `--help` 推导出的参数拼出调用。
+```
+帮我分析这个pr为什么失败了https://atomgit.com/src-openeuler/gstreamer1-plugins-bad-free/pull/162
+```
+
+```
+帮我修复这个CVE https://atomgit.com/src-openeuler/dbus/issues/48
+```
+
+```
+帮我归纳整理openEuler社区TC近期的会议内容
+```
 
 需要登录才能调用的场景：
 
@@ -103,48 +128,6 @@ Agent 会从网关读取实时服务列表，自己学习有哪些服务、每�
 
 想不通过 Agent、自己动手调用？完整的调用示例（CVE 查询、找 SIG 组、看例会、查仓库、查软件包制品、查 Issue、分析 PR 门禁 CI 失败）见 [调用场景示例](docs/scenarios_cn.md)；命令速查表见 [oed-cli 常用命令解析](docs/commands_cn.md)。
 
-### 安装 Agent Skill
-
-Agent 框架（Claude Code / Cursor / OpenCode 等）要正确调用 `oed`，需要先安装自带的 [Agent Skill](.claude/skills/oed-cli/SKILL.md)——skill 不随 pip 包分发。以 Claude Code 为例，拷到其 skills 目录：
-
-```
-git clone --depth 1 https://gitcode.com/openeuler/oed-cli /tmp/oed-cli \
-  && mkdir -p ~/.claude/skills \
-  && cp -r /tmp/oed-cli/.claude/skills/oed-cli ~/.claude/skills/
-```
-
-其他框架放到各自约定的 skill / rules 目录即可。
-
-## 一键安装（CLI + MCP）
-
-安装脚本做两件事：装好 `oed` CLI（pipx → uv → pip，`oed` 已在 PATH 上则跳过），再把 [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server 注册进你的 Agent 客户端——让任何支持 MCP 的 Agent 直接调用全部 openEuler 服务：
-
-```bash
-# 自动探测客户端，或显式指定
-curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
-curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
-```
-
-需要 pipx：`oed` 装进 pipx 的独立 venv，不污染系统 Python、卸载干净，也不受 PEP 668 限制（Ubuntu 23.04+/Debian 12+ 禁止用系统 pip 装包）；没装的话脚本会自动装。
-
-Windows（PowerShell 5.1+ / pwsh）——`install.ps1` 是 `install.sh` 的全量移植，客户端与用法一致：
-
-```powershell
-powershell -c "irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1 | iex"
-# 管道给 iex 无法传参——用 scriptblock 方式指定客户端或卸载
-powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
-powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) -Uninstall cursor"
-```
-
-Windows 侧差异：MCP 启动命令注册为 `cmd /c "npx -y oed-mcp"`（原生客户端无法直接 spawn `npx.cmd`）；CLI 以 `oed-cli[os-keyring-windows]` 凭据后端安装（DPAPI / Credential Manager——`oed login` / `oed ag login` 存 token 需要）。
-
-脚本行为：
-
-1. 安装 `oed` CLI 并跑 `oed --version` 验证。
-2. 把 `npx -y oed-mcp` 注册进所选客户端——先备份原配置为 `<file>.oed-backup` 再原地合并。优先走各家自己的 CLI（`claude mcp add`、`openclaw mcp add`、`copilot mcp add`、`pi mcp add`、`code --add-mcp`、`dsh plugin add`，Gemini/Qwen 走 extensions install）；其余直接改配置文件（Cursor/Trae/Kimi Code 合并 `mcp.json`，Codex 追加 `config.toml`，Hermes Agent 合并 `config.yaml`，Antigravity 写 `mcp_config.json`，Nanobot 写 `tools.mcpServers`，Kiro 写 `~/.kiro/settings/mcp.json`）。
-3. 幂等、可回退：重复执行安全；`bash install.sh --uninstall <client>` 只移除 `oed` 一项。
-
-脚本不经手任何令牌。多数网关服务匿名可用；需要身份的服务，装完自己跑一次 `oed login`（openEuler oneid）或 `oed ag login`（AtomGit）——见下文认证文档。
 
 ## 支持平台
 
