@@ -66,6 +66,11 @@ Skills:
   on install (cli-only skips them). Re-run this script to pick up skills
   added upstream; --uninstall removes the ones it installed (tracked in
   .oed-installed; your own skills are never touched).
+
+Environment:
+  OED_REPO     git repo for skills fetch   (default: openeuler/oed-cli)
+  OED_PYTHON   Python the pipx venv uses   (default: pipx's own Python),
+               e.g. OED_PYTHON=python3.10 — needs python3.10-venv
 EOF
 }
 
@@ -119,7 +124,14 @@ install_cli() {
   macOS:            brew install pipx && pipx ensurepath"
   fi
   info "Installing oed CLI via pipx..."
-  pipx install oed-cli
+  # OED_PYTHON=<interpreter> pins the Python the pipx venv is built with
+  # (default: whatever Python pipx itself runs under). The interpreter needs
+  # the venv module (e.g. apt install python3.10-venv).
+  if [ -n "$OED_PYTHON" ]; then
+    pipx install --python "$OED_PYTHON" oed-cli
+  else
+    pipx install oed-cli
+  fi
   ensure_path "$HOME/.local/bin"
   have oed || die "pipx finished but 'oed' is still not on PATH — open a new terminal and re-run."
   ok "Installed $(oed --version 2>/dev/null | head -1)"

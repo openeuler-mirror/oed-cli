@@ -117,7 +117,7 @@ git clone --depth 1 https://gitcode.com/openeuler/oed-cli /tmp/oed-cli \
 
 ## 一键安装（CLI + MCP）
 
-安装脚本做两件事：装好 `oed` CLI（pipx → uv → pip，`oed` 已在 PATH 上则跳过），再把 [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server 注册进你的 Agent 客户端——让任何支持 MCP 的 Agent 直接调用全部 openEuler 服务：
+安装脚本做两件事：装好 `oed` CLI（只经 **pipx** 装进独立 venv——没有 pipx 时脚本会先用系统包管理器自动装它；`oed` 已在 PATH 上则跳过；`OED_PYTHON=python3.10` 可指定 venv 用的 Python），再把 [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server 注册进你的 Agent 客户端——让任何支持 MCP 的 Agent 直接调用全部 openEuler 服务：
 
 ```bash
 # 自动探测客户端，或显式指定

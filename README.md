@@ -158,7 +158,7 @@ The first `oed <service> <operation>` call after install will pull a fresh disco
 
 ## One-line install: CLI + MCP
 
-The installer does two things: installs the `oed` CLI (pipx → uv → pip, skipped when `oed` is already on PATH), then registers the [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server with your agent client — so any MCP-capable agent can drive every openEuler service:
+The installer does two things: installs the `oed` CLI (pipx only, into its own venv — the script bootstraps pipx via the system package manager if it is missing; skipped when `oed` is already on PATH; `OED_PYTHON=python3.10` pins the Python the venv uses), then registers the [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server with your agent client — so any MCP-capable agent can drive every openEuler service:
 
 ```bash
 # auto-detect the client, or pick one explicitly
