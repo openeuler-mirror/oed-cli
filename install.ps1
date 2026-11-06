@@ -5,6 +5,8 @@
   agent client's config, so any MCP-capable agent can drive every openEuler
   Infra service. The MCP server itself is `npx -y oed-mcp` (Node >= 18);
   on native Windows it must be launched as `cmd /c npx -y oed-mcp`.
+  The repo's agent skills (.claude/skills/*) are also copied to
+  ~/.claude/skills (receipt-tracked), mirroring install.sh.
 
 .EXAMPLE
   .\install-oed.ps1                 # auto-detect client
@@ -27,6 +29,9 @@ $McpEntry = [PSCustomObject]@{ command = 'cmd'; args = @('/c', 'npx', '-y', 'oed
 
 $KimiHome  = if ($env:KIMI_CODE_HOME) { $env:KIMI_CODE_HOME } else { Join-Path $env:USERPROFILE '.kimi-code' }
 $CodexToml = if ($env:CODEX_HOME)     { Join-Path $env:CODEX_HOME 'config.toml' } else { Join-Path $env:USERPROFILE '.codex\config.toml' }
+$OedRepo       = if ($env:OED_REPO) { $env:OED_REPO } else { 'https://gitcode.com/openeuler/oed-cli.git' }
+$SkillsDir     = Join-Path $env:USERPROFILE '.claude\skills'
+$SkillsReceipt = Join-Path $SkillsDir '.oed-installed'
 
 $NoBom = New-Object System.Text.UTF8Encoding($false)
 
@@ -457,6 +462,62 @@ function Register-Dsh {
   } else { warn "No dsh profile found. Manual: dsh plugin --profile <name> add $NpmPkg" }
 }
 
+# ---------------- agent skills (parity with install.sh) ----------------
+
+# Copy the repo's agent skills (.claude/skills/*) into ~/.claude/skills so
+# Agent-Skills-compatible clients (Claude Code) can use them. A sparse clone
+# enumerates whatever skill directories exist upstream - skills added to the
+# repo later are picked up by simply re-running this script. A receipt file
+# (.oed-installed) tracks what WE installed: the user's own skills are never
+# touched. Best effort - a failure here never blocks the CLI or MCP install.
+function Install-Skills {
+  if (-not (have git)) { warn 'git not found - skipping skills (CLI and MCP are unaffected)'; return }
+  $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+  if ((Invoke-Quiet { git clone --depth 1 --filter=blob:none --sparse --quiet $OedRepo $tmp }) -ne 0 -or
+      (Invoke-Quiet { git -C $tmp sparse-checkout set .claude/skills }) -ne 0) {
+    if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+    warn "Could not fetch $OedRepo - skipping skills (CLI and MCP are unaffected)"
+    return
+  }
+  New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
+  $receipt = @()
+  if (Test-Path $SkillsReceipt) { $receipt = @(Get-Content $SkillsReceipt -ErrorAction SilentlyContinue) }
+  $installed = @()
+  foreach ($d in @(Get-ChildItem (Join-Path $tmp '.claude\skills') -Directory -ErrorAction SilentlyContinue)) {
+    $name = $d.Name
+    $dest = Join-Path $SkillsDir $name
+    if ((Test-Path $dest) -and ($receipt -notcontains $name)) {
+      warn "skills/$name exists but was not installed by oed - leaving it alone"
+      continue
+    }
+    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+    Copy-Item $d.FullName $dest -Recurse -Force
+    if ($receipt -notcontains $name) { $receipt += $name }
+    $installed += $name
+  }
+  Remove-Item $tmp -Recurse -Force
+  if ($installed.Count -gt 0) {
+    Set-Content -Path $SkillsReceipt -Value $receipt -Encoding ASCII
+    ok "Skills installed to $SkillsDir :$($installed -join ' ')"
+  } else {
+    ok "Skills already present at $SkillsDir"
+  }
+}
+
+function Uninstall-Skills {
+  # Remove exactly the skills this script installed (tracked in the receipt);
+  # anything else living in ~/.claude/skills stays untouched.
+  if (-not (Test-Path $SkillsReceipt)) { return }
+  $removed = @()
+  foreach ($name in @(Get-Content $SkillsReceipt -ErrorAction SilentlyContinue)) {
+    if (-not $name) { continue }
+    $dest = Join-Path $SkillsDir $name
+    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force; $removed += $name }
+  }
+  Remove-Item $SkillsReceipt -Force
+  if ($removed.Count -gt 0) { ok "Removed skills :$($removed -join ' ')" }
+}
+
 # ---------------- dispatch ----------------
 
 function Do-Register([string]$c) {
@@ -567,6 +628,11 @@ Clients:
   kiro         Kiro CLI / IDE       %USERPROFILE%\.kiro\settings\mcp.json
   cli-only     install the CLI only, touch no client config
 
+The repo's agent skills (.claude/skills/*) are copied to ~/.claude/skills
+on install (cli-only skips them). Re-run this script to pick up skills
+added upstream. A receipt (.oed-installed) tracks what was installed -
+your own skills are never touched.
+
 Most gateway services (CVE, packages, forum, mailman, search) work
 anonymously. Services that need identity: run `oed login` (openEuler oneid)
 or `oed ag login` (AtomGit) afterwards - interactively, by you.
@@ -594,8 +660,12 @@ if (-not $Uninstall) {
   Install-Cli
   Check-Node
   Do-Register $Client
+  # cli-only promises not to touch any client configuration - ~/.claude/skills
+  # is Claude Code's turf, so it stays out of that path too.
+  if ($Client -ne 'cli-only') { Install-Skills }
 } else {
   Do-Unregister $Client
+  Uninstall-Skills
 }
 
 Write-Host ''
