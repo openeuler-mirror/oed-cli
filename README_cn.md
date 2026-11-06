@@ -51,7 +51,7 @@
 - **运行时发现。** 你在上面看到的 `oed cve --help` 列表，是每次调用时从 `https://api-gateway.osinfra.cn/discovery/apis` 动态构建的。新服务、新端点、新的 schema 字段都会在无需升级 `oed` 的情况下自动出现。10 分钟的缓存让 CI 中的密集调用保持低成本；当你知道网关刚发布了更新时，可以用 `oed cache refresh` 强制立即重新拉取。
 - **AI 友好的输出。** stdout 上输出单个 JSON 对象，确定性的退出码（`0` 成功 · `1` 用户错误 · `2` 网络错误 · `3` 上游错误 · `4` 未找到）。日志和进度信息输出到 stderr，因此 `| jq` 始终安全。
 - **开箱即用的 Claude / Cursor 支持。** 自带 `.claude/skills/oed-cli/SKILL.md`，智能体无需自定义提示词即可知道如何使用它。
-- **MCP 就绪。** 同一套工具通过 [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp)（`npx -y oed-mcp`）触达所有 MCP 客户端——下面的 `install.sh` 一行接入。
+- **MCP 就绪。** 同一套工具通过 [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp)（`npx -y oed-mcp`）触达所有 MCP 客户端——下面的 `install.sh`（Windows 用 `install.ps1`）一行接入。
 
 ## 安装
 
@@ -124,6 +124,17 @@ git clone --depth 1 https://gitcode.com/openeuler/oed-cli /tmp/oed-cli \
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
 ```
+
+Windows（PowerShell 5.1+ / pwsh）——`install.ps1` 是 `install.sh` 的全量移植，客户端与用法一致：
+
+```powershell
+powershell -c "irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1 | iex"
+# 管道给 iex 无法传参——用 scriptblock 方式指定客户端或卸载
+powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
+powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) -Uninstall cursor"
+```
+
+Windows 侧差异：MCP 启动命令注册为 `cmd /c npx -y oed-mcp`（原生客户端无法直接 spawn `npx.cmd`）；CLI 以 `oed-cli[os-keyring-windows]` 凭据后端安装（DPAPI / Credential Manager——`oed login` / `oed ag login` 存 token 需要）。
 
 脚本行为：
 
