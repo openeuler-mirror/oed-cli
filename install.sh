@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # oed one-line installer.
 #
-# Installs the `oed` CLI (pip) and wires the `oed-mcp` MCP server into your
-# agent client's configuration, so any MCP-capable agent can drive every
-# openEuler Infra service. The MCP server itself is `npx -y oed-mcp`
-# (Node >= 18); it bootstraps the `oed` CLI automatically if pip is available.
+# Installs the `oed` CLI (pip), wires the `oed-mcp` MCP server into your
+# agent client's configuration, and copies the repo's agent skills into
+# ~/.claude/skills — so any MCP-capable agent can drive every openEuler Infra
+# service. The MCP server itself is `npx -y oed-mcp` (Node >= 18); it
+# bootstraps the `oed` CLI automatically if pip is available.
 #
 #   curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash             # auto-detect
 #   curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor   # pick a client
@@ -17,6 +18,9 @@ set -euo pipefail
 
 MCP_NPM="oed-mcp"
 MCP_ARGS='["-y","oed-mcp"]'
+OED_REPO="${OED_REPO:-https://gitcode.com/openeuler/oed-cli.git}"
+SKILLS_DIR="$HOME/.claude/skills"
+SKILLS_RECEIPT="$SKILLS_DIR/.oed-installed"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m ✓\033[0m %s\n' "$*"; }
@@ -56,6 +60,12 @@ Clients:
 Most gateway services (CVE, packages, forum, mailman, search) work
 anonymously. Services that need identity: run `oed login` (openEuler oneid)
 or `oed ag login` (AtomGit) afterwards — interactively, by you.
+
+Skills:
+  the repo's agent skills (.claude/skills/*) are copied to ~/.claude/skills
+  on install (cli-only skips them). Re-run this script to pick up skills
+  added upstream; --uninstall removes the ones it installed (tracked in
+  .oed-installed; your own skills are never touched).
 EOF
 }
 
@@ -490,6 +500,59 @@ else:
 PY
 }
 
+install_skills() {
+  # Copy the repo's agent skills (.claude/skills/*) into ~/.claude/skills so
+  # Agent-Skills-compatible clients (Claude Code) can use them. The sparse
+  # clone enumerates whatever skill directories exist upstream — skills added
+  # to the repo later are picked up by simply re-running this script. Best
+  # effort: a failure here never blocks the CLI or MCP install.
+  have git || { warn "git not found — skipping skills (CLI and MCP are unaffected)"; return 0; }
+  local tmp d name installed=""
+  tmp="$(mktemp -d)" || { warn "mktemp failed — skipping skills"; return 0; }
+  if ! git clone --depth 1 --filter=blob:none --sparse --quiet "$OED_REPO" "$tmp" >/dev/null 2>&1 \
+     || ! git -C "$tmp" sparse-checkout set .claude/skills >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    warn "Could not fetch $OED_REPO — skipping skills (CLI and MCP are unaffected)"
+    return 0
+  fi
+  mkdir -p "$SKILLS_DIR"
+  for d in "$tmp"/.claude/skills/*/; do
+    [ -d "$d" ] || continue
+    name="$(basename "$d")"
+    if [ -e "$SKILLS_DIR/$name" ] && ! grep -qxs "$name" "$SKILLS_RECEIPT" 2>/dev/null; then
+      warn "skills/$name exists but was not installed by oed — leaving it alone"
+      continue
+    fi
+    rm -rf "$SKILLS_DIR/$name"
+    cp -R "$d" "$SKILLS_DIR/$name"
+    grep -qxs "$name" "$SKILLS_RECEIPT" 2>/dev/null || echo "$name" >> "$SKILLS_RECEIPT"
+    installed="$installed $name"
+  done
+  rm -rf "$tmp"
+  if [ -n "$installed" ]; then
+    ok "Skills installed to $SKILLS_DIR:$installed"
+  else
+    ok "Skills already present at $SKILLS_DIR"
+  fi
+}
+
+uninstall_skills() {
+  # Remove exactly the skills this script installed (tracked in the receipt);
+  # anything else living in ~/.claude/skills stays untouched.
+  [ -f "$SKILLS_RECEIPT" ] || return 0
+  local name removed=""
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    if [ -e "$SKILLS_DIR/$name" ]; then
+      rm -rf "$SKILLS_DIR/$name"
+      removed="$removed $name"
+    fi
+  done < "$SKILLS_RECEIPT"
+  rm -f "$SKILLS_RECEIPT"
+  [ -n "$removed" ] && ok "Removed skills:$removed"
+  return 0
+}
+
 do_register() {
   case "$1" in
     claude)    register_claude ;;
@@ -593,8 +656,12 @@ main() {
     install_cli
     check_node
     do_register "$client"
+    # cli-only promises not to touch any client configuration — ~/.claude/skills
+    # is Claude Code's turf, so it stays out of that path too.
+    [ "$client" = "cli-only" ] || install_skills
   else
     do_unregister "$client"
+    uninstall_skills
   fi
 
   echo ""
