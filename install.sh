@@ -127,7 +127,7 @@ install_cli() {
   # OED_PYTHON=<interpreter> pins the Python the pipx venv is built with
   # (default: whatever Python pipx itself runs under). The interpreter needs
   # the venv module (e.g. apt install python3.10-venv).
-  if [ -n "$OED_PYTHON" ]; then
+  if [ -n "${OED_PYTHON:-}" ]; then
     pipx install --python "$OED_PYTHON" oed-cli
   else
     pipx install oed-cli
