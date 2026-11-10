@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://pypi.org/project/oed-cli/"><img src="https://img.shields.io/pypi/v/oed-cli" alt="PyPI" /></a>
   <a href="https://www.python.org"><img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python 3.10+" /></a>
-  <a href="https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache-2.0" /></a>
+  <a href="https://atomgit.com/openeuler/oed-cli/tree/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache-2.0" /></a>
   <a href="#一键安装-cli--mcp"><img src="https://img.shields.io/badge/MCP-oed--mcp-6f42c1" alt="MCP: oed-mcp" /></a>
   <a href=".claude/skills/oed-cli/SKILL.md"><img src="https://img.shields.io/badge/Agent_Skill-bundled-0969da" alt="Agent Skill: bundled" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/平台-18%2B-orange" alt="平台: 18+" /></a>
@@ -64,11 +64,11 @@ linux客户端:
 自动探测宿主机上的所有Agent并一次性批量全部安装。
 ```bash
 # 不带参数 = 给机器上检测到的所有客户端注册（MCP + skills）；也可显式指定一个
-curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
+curl -fsSL https://raw.atomgit.com/openeuler/oed-cli/raw/master/install.sh | bash
 ```
 （可选）如需仅在指定 Agent 平台安装，可显式选择目标平台，无需一次性安装全部平台。
 ```bash
-curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
+curl -fsSL https://raw.atomgit.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
 ```
 注意：受 PEP 668 限制（Ubuntu 23.04+/Debian 12+ 禁止用系统 pip 装包），该脚本执行时需要安装pipx，然后再将`oed` 装进 pipx 的独立 venv。
 
@@ -76,11 +76,11 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 windows客户端:
 自动探测宿主机上的所有Agent并一次性批量全部安装。
 ```powershell
-powershell -c "irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1 | iex"
+powershell -c "irm https://raw.atomgit.com/openeuler/oed-cli/raw/master/install.ps1 | iex"
 ```
 （可选）如需仅在指定 Agent 平台安装，可显式选择目标平台，无需一次性安装全部平台。
 ```powershell
-powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
+powershell -c "& ([scriptblock]::Create((irm https://raw.atomgit.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
 ```
 
 
@@ -99,7 +99,7 @@ pipx install oed-cli
 **方式四：源码安装（本地开发、调试）**
 
 ```
-git clone https://gitcode.com/openeuler/oed-cli && cd oed-cli
+git clone https://atomgit.com/openeuler/oed-cli && cd oed-cli
 pip install -e .
 ```
 
@@ -191,11 +191,11 @@ MCP 需要 Node ≥ 18（`npx`）；CLI 本身需要 Python ≥ 3.10。MCP serve
 
 ## 贡献
 
-欢迎在 [gitcode.com/openeuler/oed-cli](https://gitcode.com/openeuler/oed-cli) 提交 issue 和补丁，开发安装步骤见[本地开发](docs/local_dev_cn.md)。
+欢迎在 [atomgit.com/openeuler/oed-cli](https://atomgit.com/openeuler/oed-cli) 提交 issue 和补丁，开发安装步骤见[本地开发](docs/local_dev_cn.md)。
 
 ## 许可证
 
-Apache-2.0。详见 [LICENSE](https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE)。
+Apache-2.0。详见 [LICENSE](https://atomgit.com/openeuler/oed-cli/tree/master/LICENSE)。
 
 ---
 
