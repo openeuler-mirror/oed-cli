@@ -508,14 +508,19 @@ function Register-Dsh {
 
 # ---------------- agent skills (parity with install.sh) ----------------
 
-# Where each client actually reads Agent Skills from - Claude Code:
-# ~/.claude\skills; dsh: $DSH_HOME\skills (the skill-filesystem user root).
-# Clients without an Agent-Skills directory get none.
+# Where each client actually reads Agent Skills from - verified in each
+# tool's code / --help (Nov 2026): ~/.agents\skills is the cross-agent
+# standard shared by OpenClaw, Kimi Code, VS Code (Copilot) and Copilot CLI;
+# hermes only reads its native dir; Claude Code and dsh keep theirs.
 function Get-SkillDirs([string]$c) {
   switch ($c) {
     'claude' { return @($SkillsDir) }
     'dsh'    { $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
                return @(Join-Path $dshHome 'skills') }
+    'hermes' { $h = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:USERPROFILE '.hermes' }
+               return @(Join-Path $h 'skills') }
+    { $_ -in 'openclaw', 'kimi', 'vscode', 'copilot' } {
+               return @(Join-Path $env:USERPROFILE '.agents\skills') }
     default  { return @() }
   }
 }
@@ -693,10 +698,12 @@ Clients:
 
 The repo's agent skills (.claude/skills/*) are installed into the
 Agent-Skills directories the chosen client reads - Claude Code:
-~/.claude/skills, dsh: ~/.dsh/skills. Clients without such a directory
-skip skills. Re-run this script to pick up skills added upstream. A
-receipt (.oed-installed) tracks what was installed - your own skills are
-never touched.
+~/.claude/skills, dsh: ~/.dsh/skills, hermes: ~/.hermes/skills, and the
+cross-agent standard ~/.agents/skills (shared by OpenClaw, Kimi Code,
+VS Code, Copilot CLI). Clients without skills support skip skills.
+Re-run this script to pick up skills added upstream. A receipt
+(.oed-installed) tracks what was installed - your own skills are never
+touched.
 
 Most gateway services (CVE, packages, forum, mailman, search) work
 anonymously. Services that need identity: run `oed login` (openEuler oneid)

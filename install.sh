@@ -65,10 +65,12 @@ or `oed ag login` (AtomGit) afterwards — interactively, by you.
 Skills:
   the repo's agent skills (.claude/skills/*) are installed into the
   Agent-Skills directories the chosen client reads — Claude Code:
-  ~/.claude/skills, dsh: ~/.dsh/skills (clients without such a directory
-  skip skills). Re-run this script to pick up skills added upstream;
-  --uninstall removes the ones it installed (tracked in a .oed-installed
-  receipt; your own skills are never touched).
+  ~/.claude/skills, dsh: ~/.dsh/skills, hermes: ~/.hermes/skills, and the
+  cross-agent standard ~/.agents/skills (shared by OpenClaw, Kimi Code,
+  VS Code, Copilot CLI). Clients without skills support skip skills.
+  Re-run this script to pick up skills added upstream; --uninstall removes
+  the ones it installed (tracked in a .oed-installed receipt; your own
+  skills are never touched).
 
 Environment:
   OED_REPO     git repo for skills fetch   (default: openeuler/oed-cli)
@@ -615,13 +617,19 @@ else:
 PY
 }
 
-# Skills go where the chosen client actually reads them — ~/.claude/skills
-# for Claude Code, ~/.dsh/skills for dsh (its skill-filesystem user root,
-# honoring $DSH_HOME). Clients without an Agent-Skills directory get none.
+# Skills go where the chosen client actually reads them — verified in each
+# tool's code / --help (Nov 2026): Claude Code ~/.claude/skills (its binary
+# knows no other dir), dsh ~/.dsh/skills (its skill-filesystem user root,
+# honoring $DSH_HOME), hermes ~/.hermes/skills (does NOT read the standard
+# dir), and ~/.agents/skills — the cross-agent standard shared by OpenClaw,
+# Kimi Code, VS Code (Copilot) and Copilot CLI. Clients without Agent-Skills
+# support get none.
 skills_dirs_for() {
   case "$1" in
     claude) echo "$SKILLS_DIR" ;;
     dsh)    echo "${DSH_HOME:-$HOME/.dsh}/skills" ;;
+    hermes) echo "${HERMES_HOME:-$HOME/.hermes}/skills" ;;
+    openclaw|kimi|vscode|copilot) echo "$HOME/.agents/skills" ;;
     *)      echo "" ;;
   esac
 }
