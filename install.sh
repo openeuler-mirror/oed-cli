@@ -70,9 +70,9 @@ Skills:
   ~/.nanobot/workspace/skills, kiro: ~/.kiro/skills,
   opencode: ~/.config/opencode/skills, cursor: ~/.cursor/skills,
   codex: ~/.codex/skills, gemini: ~/.gemini/skills, qwen: ~/.qwen/skills,
-  and the cross-agent standard ~/.agents/skills (shared by OpenClaw,
-  Kimi Code, VS Code, Copilot CLI and Pi). Clients without skills
-  support skip skills.
+  antigravity: ~/.gemini/config/skills, and the cross-agent standard
+  ~/.agents/skills (shared by OpenClaw, Kimi Code, VS Code, Copilot CLI
+  and Pi). Every supported client reads skills.
   Re-run this script to pick up skills added upstream; --uninstall removes
   the ones it installed (tracked in a .oed-installed receipt; your own
   skills are never touched).
@@ -634,25 +634,27 @@ PY
 # SKILLS can turn off; XDG_CONFIG_HOME honored), cursor ~/.cursor/skills
 # (cursor-agent user-scope table), codex $CODEX_HOME/skills, gemini
 # ~/.gemini/skills, qwen ~/.qwen/skills ($QWEN_HOME honored, wins ties),
-# and ~/.agents/skills — the cross-agent standard shared by OpenClaw, Kimi
-# Code, VS Code, Copilot CLI and Pi. Clients without Agent-Skills support
-# get none.
+# antigravity ~/.gemini/config/skills (antigravity.google/docs/skills; the
+# legacy ~/.gemini/antigravity/skills still works but is legacy), and
+# ~/.agents/skills — the cross-agent standard shared by OpenClaw, Kimi
+# Code, VS Code, Copilot CLI and Pi. Every supported client reads skills.
 skills_dirs_for() {
   case "$1" in
-    claude)   echo "$SKILLS_DIR" ;;
-    dsh)      echo "${DSH_HOME:-$HOME/.dsh}/skills" ;;
-    hermes)   echo "${HERMES_HOME:-$HOME/.hermes}/skills" ;;
-    trae)     echo "$HOME/.trae/skills" ;;
-    trae-cn)  echo "$HOME/.trae-cn/skills" ;;
-    nanobot)  echo "$HOME/.nanobot/workspace/skills" ;;
-    kiro)     echo "$HOME/.kiro/skills" ;;
-    opencode) echo "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills" ;;
-    cursor)   echo "$HOME/.cursor/skills" ;;
-    codex)    echo "${CODEX_HOME:-$HOME/.codex}/skills" ;;
-    gemini)   echo "$HOME/.gemini/skills" ;;
-    qwen)     echo "${QWEN_HOME:-$HOME/.qwen}/skills" ;;
+    claude)     echo "$SKILLS_DIR" ;;
+    dsh)        echo "${DSH_HOME:-$HOME/.dsh}/skills" ;;
+    hermes)     echo "${HERMES_HOME:-$HOME/.hermes}/skills" ;;
+    trae)       echo "$HOME/.trae/skills" ;;
+    trae-cn)    echo "$HOME/.trae-cn/skills" ;;
+    nanobot)    echo "$HOME/.nanobot/workspace/skills" ;;
+    kiro)       echo "$HOME/.kiro/skills" ;;
+    opencode)   echo "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills" ;;
+    cursor)     echo "$HOME/.cursor/skills" ;;
+    codex)      echo "${CODEX_HOME:-$HOME/.codex}/skills" ;;
+    gemini)     echo "$HOME/.gemini/skills" ;;
+    qwen)       echo "${QWEN_HOME:-$HOME/.qwen}/skills" ;;
+    antigravity) echo "$HOME/.gemini/config/skills" ;;
     openclaw|kimi|vscode|copilot|pi) echo "$HOME/.agents/skills" ;;
-    *)        echo "" ;;
+    *)          echo "" ;;
   esac
 }
 

@@ -511,31 +511,33 @@ function Register-Dsh {
 # Where each client actually reads Agent Skills from - verified per tool in
 # code / --help / official docs (Nov 2026): each entry is the client's
 # native dir (opencode's own config dir is read unconditionally, unlike
-# ~/.agents\skills which OPENCODE_DISABLE_EXTERNAL_SKILLS can turn off);
-# ~/.agents\skills is the cross-agent standard shared by OpenClaw, Kimi
-# Code, VS Code, Copilot CLI and Pi.
+# ~/.agents\skills which OPENCODE_DISABLE_EXTERNAL_SKILLS can turn off;
+# antigravity per antigravity.google/docs/skills); ~/.agents\skills is the
+# cross-agent standard shared by OpenClaw, Kimi Code, VS Code, Copilot CLI
+# and Pi. Every supported client reads skills.
 function Get-SkillDirs([string]$c) {
   switch ($c) {
-    'claude'    { return @($SkillsDir) }
-    'dsh'       { $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
-                  return @(Join-Path $dshHome 'skills') }
-    'hermes'    { $h = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:USERPROFILE '.hermes' }
-                  return @(Join-Path $h 'skills') }
-    'trae'      { return @(Join-Path $env:USERPROFILE '.trae\skills') }
-    'trae-cn'   { return @(Join-Path $env:USERPROFILE '.trae-cn\skills') }
-    'nanobot'   { return @(Join-Path $env:USERPROFILE '.nanobot\workspace\skills') }
-    'kiro'      { return @(Join-Path $env:USERPROFILE '.kiro\skills') }
-    'opencode'  { $cfg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $env:USERPROFILE '.config' }
-                  return @(Join-Path $cfg 'opencode\skills') }
-    'cursor'    { return @(Join-Path $env:USERPROFILE '.cursor\skills') }
-    'codex'     { $cx = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
-                  return @(Join-Path $cx 'skills') }
-    'gemini'    { return @(Join-Path $env:USERPROFILE '.gemini\skills') }
-    'qwen'      { $qw = if ($env:QWEN_HOME) { $env:QWEN_HOME } else { Join-Path $env:USERPROFILE '.qwen' }
-                  return @(Join-Path $qw 'skills') }
+    'claude'     { return @($SkillsDir) }
+    'dsh'        { $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
+                   return @(Join-Path $dshHome 'skills') }
+    'hermes'     { $h = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:USERPROFILE '.hermes' }
+                   return @(Join-Path $h 'skills') }
+    'trae'       { return @(Join-Path $env:USERPROFILE '.trae\skills') }
+    'trae-cn'    { return @(Join-Path $env:USERPROFILE '.trae-cn\skills') }
+    'nanobot'    { return @(Join-Path $env:USERPROFILE '.nanobot\workspace\skills') }
+    'kiro'       { return @(Join-Path $env:USERPROFILE '.kiro\skills') }
+    'opencode'   { $cfg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $env:USERPROFILE '.config' }
+                   return @(Join-Path $cfg 'opencode\skills') }
+    'cursor'     { return @(Join-Path $env:USERPROFILE '.cursor\skills') }
+    'codex'      { $cx = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+                   return @(Join-Path $cx 'skills') }
+    'gemini'     { return @(Join-Path $env:USERPROFILE '.gemini\skills') }
+    'qwen'       { $qw = if ($env:QWEN_HOME) { $env:QWEN_HOME } else { Join-Path $env:USERPROFILE '.qwen' }
+                   return @(Join-Path $qw 'skills') }
+    'antigravity' { return @(Join-Path $env:USERPROFILE '.gemini\config\skills') }
     { $_ -in 'openclaw', 'kimi', 'vscode', 'copilot', 'pi' } {
-                  return @(Join-Path $env:USERPROFILE '.agents\skills') }
-    default     { return @() }
+                   return @(Join-Path $env:USERPROFILE '.agents\skills') }
+    default      { return @() }
   }
 }
 
@@ -717,11 +719,11 @@ trae: ~/.trae/skills, trae-cn: ~/.trae-cn/skills, nanobot:
 ~/.nanobot/workspace/skills, kiro: ~/.kiro/skills,
 opencode: ~/.config/opencode/skills, cursor: ~/.cursor/skills,
 codex: ~/.codex/skills, gemini: ~/.gemini/skills, qwen: ~/.qwen/skills,
-and the cross-agent standard ~/.agents/skills (shared by OpenClaw,
-Kimi Code, VS Code, Copilot CLI and Pi). Clients without skills support
-skip skills. Re-run this script to pick up skills added upstream. A
-receipt (.oed-installed) tracks what was installed - your own skills
-are never touched.
+antigravity: ~/.gemini/config/skills, and the cross-agent standard
+~/.agents/skills (shared by OpenClaw, Kimi Code, VS Code, Copilot CLI
+and Pi). Every supported client reads skills. Re-run this script to
+pick up skills added upstream. A receipt (.oed-installed) tracks what
+was installed - your own skills are never touched.
 
 Most gateway services (CVE, packages, forum, mailman, search) work
 anonymously. Services that need identity: run `oed login` (openEuler oneid)
