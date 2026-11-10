@@ -61,23 +61,28 @@
 **方式一：脚本一键安装（自动探测Agent，并打包CLI + MCP + Skills安装，推荐）**
 
 linux客户端:
+自动探测宿主机上的所有Agent并一次性批量全部安装。
 ```bash
 # 不带参数 = 给机器上检测到的所有客户端注册（MCP + skills）；也可显式指定一个
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
+```
+（可选）如需仅在指定 Agent 平台安装，可显式选择目标平台，无需一次性安装全部平台。
+```bash
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
 ```
 注意：受 PEP 668 限制（Ubuntu 23.04+/Debian 12+ 禁止用系统 pip 装包），该脚本执行时需要安装pipx，然后再将`oed` 装进 pipx 的独立 venv。
 
 
 windows客户端:
+自动探测宿主机上的所有Agent并一次性批量全部安装。
 ```powershell
-# 不带参数 = 给机器上检测到的所有客户端注册（MCP + skills）；也可显式指定一个
 powershell -c "irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1 | iex"
-
+```
+（可选）如需仅在指定 Agent 平台安装，可显式选择目标平台，无需一次性安装全部平台。
+```powershell
 powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
 ```
 
-脚本会把仓库自带的 Agent Skills 装进所选客户端读取的技能目录（Claude Code：`~/.claude/skills`；dsh：`~/.dsh/skills`；Hermes Agent：`~/.hermes/skills`；Trae：`~/.trae/skills`；Nanobot：`~/.nanobot/workspace/skills`；Kiro：`~/.kiro/skills`；OpenCode：`~/.config/opencode/skills`；Cursor：`~/.cursor/skills`；Codex：`~/.codex/skills`；Gemini CLI：`~/.gemini/skills`；Qwen Code：`~/.qwen/skills`；Antigravity：`~/.gemini/config/skills`；OpenClaw / Kimi Code / VS Code / Copilot CLI / Pi：跨工具标准位 `~/.agents/skills`），全部 18 个客户端都支持 skills 安装，重复执行即可同步上游新增的 skills。客户端自身的 CLI 失败时（如 dsh 的 exe 安装没有 `plugin` 子命令、`code --add-mcp` 在 root/无头环境下被拒），脚本会退回直接写该客户端的配置文件，不会中途退出。
 
 **方式二：pip（日常使用）**
 
