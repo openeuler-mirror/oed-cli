@@ -47,7 +47,43 @@ function die($m)  { [Console]::Error.WriteLine(' x ' + $m); exit 1 }
 function have([string]$c) { [bool](Get-Command $c -ErrorAction SilentlyContinue) }
 
 function backup([string]$f) {
-  if (Test-Path $f) { Copy-Item $f "$f.oed-backup" -Force; info "Backup written: $f.oed-backup" }
+  if (Test-Path $f) {
+    try { Copy-Item $f "$f.oed-backup" -Force; info "Backup written: $f.oed-backup" }
+    catch { warn "Could not write backup for $f - $($_.Exception.Message)" }
+  }
+}
+
+# Skills-copy helpers. Under $ErrorActionPreference='Stop' an unprotected
+# Remove-Item/Copy-Item aborts the whole run on the classic Windows transient
+# locks: Defender/OneDrive/indexer scanning the fresh clone, or the agent
+# itself running with its skills directory open. Skills are contractually
+# best-effort - retry once, then warn and keep going, never block the CLI or
+# MCP install.
+function Remove-SkillDir([string]$path) {
+  for ($i = 1; $i -le 2; $i++) {
+    try { Remove-Item $path -Recurse -Force; return } catch {
+      if ($i -eq 2) { warn "Could not remove $path - $($_.Exception.Message)" }
+      else { Start-Sleep -Milliseconds 300 }
+    }
+  }
+}
+
+function Copy-SkillDir([string]$src, [string]$dst) {
+  # Copy CONTENTS of $src into $dst (never `Copy-Item $src $dst` - when $dst
+  # already exists because the removal above was blocked, that would nest the
+  # skill one level deeper). Hidden items are skipped by the wildcard; our
+  # skill dirs hold none.
+  for ($i = 1; $i -le 2; $i++) {
+    try {
+      if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }
+      Copy-Item (Join-Path $src '*') $dst -Recurse -Force
+      return $true
+    } catch {
+      if ($i -eq 2) { warn "Could not copy skills to $dst - $($_.Exception.Message)"; return $false }
+      Start-Sleep -Milliseconds 300
+    }
+  }
+  return $false
 }
 
 # Run a native command with stderr swallowed (PS 5.1 turns redirected stderr
@@ -627,11 +663,14 @@ function Install-Skills([string]$dest) {
   $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
   if ((Invoke-Quiet { git clone --depth 1 --filter=blob:none --sparse --quiet $OedRepo $tmp }) -ne 0 -or
       (Invoke-Quiet { git -C $tmp sparse-checkout set .claude/skills }) -ne 0) {
-    if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+    if (Test-Path $tmp) { Remove-SkillDir $tmp }
     warn "Could not fetch $OedRepo - skipping skills (CLI and MCP are unaffected)"
     return
   }
-  New-Item -ItemType Directory -Path $dest -Force | Out-Null
+  try { New-Item -ItemType Directory -Path $dest -Force | Out-Null } catch {
+    warn "Could not create $dest - $($_.Exception.Message) - skipping skills (CLI and MCP are unaffected)"
+    return
+  }
   $receiptPath = Join-Path $dest '.oed-installed'
   $receipt = @()
   if (Test-Path $receiptPath) { $receipt = @(Get-Content $receiptPath -ErrorAction SilentlyContinue) }
@@ -643,14 +682,16 @@ function Install-Skills([string]$dest) {
       warn "skills/$name exists in $dest but was not installed by oed - leaving it alone"
       continue
     }
-    if (Test-Path $target) { Remove-Item $target -Recurse -Force }
-    Copy-Item $d.FullName $target -Recurse -Force
+    if (Test-Path $target) { Remove-SkillDir $target }
+    if (-not (Copy-SkillDir $d.FullName $target)) { continue }
     if ($receipt -notcontains $name) { $receipt += $name }
     $installed += $name
   }
-  Remove-Item $tmp -Recurse -Force
+  Remove-SkillDir $tmp
   if ($installed.Count -gt 0) {
-    Set-Content -Path $receiptPath -Value $receipt -Encoding ASCII
+    try { Set-Content -Path $receiptPath -Value $receipt -Encoding ASCII } catch {
+      warn "Could not write $receiptPath - $($_.Exception.Message) - a re-run will treat these skills as user-owned and leave them"
+    }
     ok "Skills installed to $dest :$($installed -join ' ')"
   } else {
     ok "Skills already present at $dest"
@@ -666,9 +707,11 @@ function Uninstall-Skills([string]$dest) {
   foreach ($name in @(Get-Content $receiptPath -ErrorAction SilentlyContinue)) {
     if (-not $name) { continue }
     $target = Join-Path $dest $name
-    if (Test-Path $target) { Remove-Item $target -Recurse -Force; $removed += $name }
+    if (Test-Path $target) { Remove-SkillDir $target; $removed += $name }
   }
-  Remove-Item $receiptPath -Force
+  try { Remove-Item $receiptPath -Force } catch {
+    warn "Could not remove $receiptPath - $($_.Exception.Message)"
+  }
   if ($removed.Count -gt 0) { ok "Removed skills from $dest :$($removed -join ' ')" }
 }
 
