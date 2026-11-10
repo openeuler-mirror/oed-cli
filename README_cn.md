@@ -56,28 +56,9 @@
 
 ## 安装
 
-三种安装方式，按使用场景选一种即可。
+四种安装方式，按使用场景选一种即可。
 
-**方式一：pip（日常使用）**
-
-```
-pip install oed-cli
-```
-
-**方式二：pipx（隔离环境，推荐用于 CI）**
-
-```
-pipx install oed-cli
-```
-
-**方式三：源码安装（本地开发、调试）**
-
-```
-git clone https://gitcode.com/openeuler/oed-cli && cd oed-cli
-pip install -e .
-```
-
-**方式四：脚本一键安装（CLI + MCP + Skills打包安装，推荐）**
+**方式一：脚本一键安装（自动探测Agent，并打包CLI + MCP + Skills安装，推荐）**
 
 linux客户端:
 ```bash
@@ -97,6 +78,25 @@ powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/o
 ```
 
 脚本会把仓库自带的 Agent Skills 装进所选客户端读取的技能目录（Claude Code：`~/.claude/skills`；dsh：`~/.dsh/skills`；Hermes Agent：`~/.hermes/skills`；Trae：`~/.trae/skills`；Nanobot：`~/.nanobot/workspace/skills`；Kiro：`~/.kiro/skills`；OpenCode：`~/.config/opencode/skills`；Cursor：`~/.cursor/skills`；Codex：`~/.codex/skills`；Gemini CLI：`~/.gemini/skills`；Qwen Code：`~/.qwen/skills`；Antigravity：`~/.gemini/config/skills`；OpenClaw / Kimi Code / VS Code / Copilot CLI / Pi：跨工具标准位 `~/.agents/skills`），全部 18 个客户端都支持 skills 安装，重复执行即可同步上游新增的 skills。客户端自身的 CLI 失败时（如 dsh 的 exe 安装没有 `plugin` 子命令、`code --add-mcp` 在 root/无头环境下被拒），脚本会退回直接写该客户端的配置文件，不会中途退出。
+
+**方式二：pip（日常使用）**
+
+```
+pip install oed-cli
+```
+
+**方式三：pipx（隔离环境，推荐用于 CI）**
+
+```
+pipx install oed-cli
+```
+
+**方式四：源码安装（本地开发、调试）**
+
+```
+git clone https://gitcode.com/openeuler/oed-cli && cd oed-cli
+pip install -e .
+```
 
 安装完成后，验证是否成功：
 
