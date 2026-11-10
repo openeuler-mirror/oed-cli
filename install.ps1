@@ -502,8 +502,82 @@ function Register-Dsh {
   if ($prof) {
     if ((Invoke-Quiet { dsh plugin --profile $prof add oed-mcp }) -eq 0) {
       ok "Added oed-mcp as a dsh plugin in profile '$prof'"
-    } else { warn 'dsh plugin add failed - run it manually.' }
+    } else {
+      # exe distributions ship no usable `dsh plugin` subcommand - fall back
+      # to editing the profile directly.
+      warn 'dsh CLI failed - writing the profile directly (exe installs have no plugin subcommand)'
+      Register-DshProfile $prof
+    }
   } else { warn "No dsh profile found. Manual: dsh plugin --profile <name> add $NpmPkg" }
+}
+
+# Direct dsh profile registration - the fallback for exe installs whose CLI
+# has no `plugin` subcommand. A dsh profile is a pnpm workspace whose
+# package.json lists the plugin both as a dependency and in
+# dsh.profile.bundles (shape verified against a profile created by
+# `dsh plugin add` itself); the CLI does exactly these two edits plus the
+# package install, so we redo them by hand.
+function Register-DshProfile([string]$prof) {
+  $dir = Join-Path (Join-Path $env:USERPROFILE '.dsh\profiles') $prof
+  $pkg = Join-Path $dir 'package.json'
+  if (-not (Test-Path $pkg)) { warn "No dsh profile at $dir - start dsh once to create it, then re-run."; return }
+  backup $pkg
+  $data = Get-Content $pkg -Raw -Encoding UTF8 | ConvertFrom-Json
+  $deps = Get-RootObj $data @('dependencies')
+  if ($deps.PSObject.Properties['oed-mcp']) { $deps.'oed-mcp' = 'latest' }
+  else { $deps | Add-Member NoteProperty 'oed-mcp' 'latest' }
+  $profObj = Get-RootObj $data @('dsh', 'profile')
+  $bprop = $profObj.PSObject.Properties['bundles']
+  if ($bprop) {
+    if (@($bprop.Value) -notcontains 'oed-mcp') { $bprop.Value = @($bprop.Value) + 'oed-mcp' }
+  } else { $profObj | Add-Member NoteProperty 'bundles' @('oed-mcp') }
+  Write-TextNoBom $pkg ((ConvertTo-JsonPlain $data) + "`n")
+  $tool = $null
+  if (have pnpm) { $tool = 'pnpm' } elseif (have npm) { $tool = 'npm' }
+  if (-not $tool) { warn "Neither pnpm nor npm found - package.json updated; run the install inside '$dir' yourself."; return }
+  Push-Location $dir
+  try {
+    $rc = if ($tool -eq 'pnpm') { Invoke-Quiet { pnpm install --silent } } else { Invoke-Quiet { npm install --silent --no-fund --no-audit } }
+    if ($rc -eq 0) { ok "Installed oed-mcp into dsh profile '$prof' ($tool)" }
+    else { warn "Package install failed in '$dir' - package.json is updated; run it manually to see the error" }
+  } finally { Pop-Location }
+}
+
+function Unregister-Dsh {
+  $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
+  $pdir = Join-Path $dshHome 'profiles'
+  if (-not (Test-Path $pdir)) { warn 'No dsh profiles dir - nothing to do.'; return }
+  $cleaned = $false
+  foreach ($p in (Get-ChildItem $pdir -Directory)) {
+    if ((have dsh) -and ((Invoke-Quiet { dsh plugin --profile $p.Name remove oed-mcp }) -eq 0)) {
+      ok "Removed oed-mcp from dsh profile '$($p.Name)'"; $cleaned = $true; continue
+    }
+    # direct clean for profiles the fallback wrote (or where the CLI refused)
+    $pkg = Join-Path $p.FullName 'package.json'
+    if (-not (Test-Path $pkg)) { continue }
+    $data = Get-Content $pkg -Raw -Encoding UTF8 | ConvertFrom-Json
+    $changed = $false
+    $dprop = $data.PSObject.Properties['dependencies']
+    if ($dprop -and $dprop.Value -and $dprop.Value.PSObject.Properties['oed-mcp']) {
+      $dprop.Value.PSObject.Properties.Remove('oed-mcp'); $changed = $true
+    }
+    $dsh2 = $data.PSObject.Properties['dsh']
+    $bprop = $null
+    if ($dsh2 -and $dsh2.Value) {
+      $pr = $dsh2.Value.PSObject.Properties['profile']
+      if ($pr -and $pr.Value) { $bprop = $pr.Value.PSObject.Properties['bundles'] }
+    }
+    if ($bprop -and $bprop.Value) {
+      $kept = @($bprop.Value | Where-Object { $_ -ne 'oed-mcp' })
+      if ($kept.Count -ne @($bprop.Value).Count) { $bprop.Value = $kept; $changed = $true }
+    }
+    if ($changed) {
+      Write-TextNoBom $pkg ((ConvertTo-JsonPlain $data) + "`n")
+      ok "Removed oed-mcp from dsh profile '$($p.Name)' (package.json edited directly)"
+      $cleaned = $true
+    }
+  }
+  if (-not $cleaned) { warn "Remove manually: dsh plugin --profile <name> remove $NpmPkg (check the profile's bundle patch)." }
 }
 
 # ---------------- agent skills (parity with install.sh) ----------------
@@ -636,7 +710,7 @@ function Do-Unregister([string]$c) {
                     Remove-JsonServer (Join-Path $env:APPDATA 'Trae-CN\User\mcp.json') @('mcpServers')
                     Remove-JsonServer (Join-Path $env:USERPROFILE '.trae-cn\mcp.json') @('mcpServers') }
     'codex'       { Unregister-Codex }
-    'dsh'         { warn "Remove manually: dsh plugin --profile <name> remove $NpmPkg (check the profile's bundle patch)." }
+    'dsh'         { Unregister-Dsh }
     'openclaw'    { Remove-JsonServer (Join-Path $env:USERPROFILE '.openclaw\openclaw.json') @('mcp', 'servers') }
     'opencode'    { Remove-JsonServer $OpencodeConfig @('mcp') }
     'hermes'      { Unregister-Hermes }
@@ -663,22 +737,26 @@ function Do-Unregister([string]$c) {
   }
 }
 
-function Detect-Client {
+# Every agent client present on this machine, deduped, in probe order - a
+# no-argument run targets all of them, not just the first match. One client
+# can be detected by several probes (binary + config dir), hence the dedupe.
+function Detect-Clients {
+  $found = @()
   foreach ($c in 'claude', 'cursor', 'dsh', 'gemini', 'qwen', 'codex', 'openclaw', 'opencode', 'kimi', 'hermes', 'copilot', 'pi', 'nanobot') {
-    if (have $c) { return $c }
+    if (have $c) { $found += $c }
   }
-  if (have code) { return 'vscode' }
-  if (have 'kiro-cli') { return 'kiro' }
-  foreach ($d in 'Trae CN', 'Trae-CN') { if (Test-Path (Join-Path $env:APPDATA $d)) { return 'trae-cn' } }
-  if (Test-Path (Join-Path $env:APPDATA 'Trae')) { return 'trae' }
+  if (have code) { $found += 'vscode' }
+  if (have 'kiro-cli') { $found += 'kiro' }
+  foreach ($d in 'Trae CN', 'Trae-CN') { if (Test-Path (Join-Path $env:APPDATA $d)) { $found += 'trae-cn' } }
+  if (Test-Path (Join-Path $env:APPDATA 'Trae')) { $found += 'trae' }
   foreach ($m in @(@('.cursor', 'cursor'), @('.codex', 'codex'), @('.trae', 'trae'), @('.trae-cn', 'trae-cn'),
                    @('.openclaw', 'openclaw'), @('.hermes', 'hermes'), @('.gemini\antigravity', 'antigravity'),
                    @('.kiro', 'kiro'), @('.nanobot', 'nanobot'), @('.pi', 'pi'))) {
-    if (Test-Path (Join-Path $env:USERPROFILE $m[0])) { return $m[1] }
+    if (Test-Path (Join-Path $env:USERPROFILE $m[0])) { $found += $m[1] }
   }
-  if (Test-Path (Join-Path $env:USERPROFILE '.config\opencode')) { return 'opencode' }
-  if (Test-Path $KimiHome) { return 'kimi' }
-  return ''
+  if (Test-Path (Join-Path $env:USERPROFILE '.config\opencode')) { $found += 'opencode' }
+  if (Test-Path $KimiHome) { $found += 'kimi' }
+  return @($found | Select-Object -Unique)
 }
 
 function Print-Usage {
@@ -687,9 +765,9 @@ oed installer (Windows) - install the oed CLI, then register the oed-mcp
 MCP server with one agent client so it can call every openEuler Infra service.
 
 Usage:
-  .\install-oed.ps1 [client]      install CLI + register client (no arg = auto-detect)
+  .\install-oed.ps1 [client]      install CLI + register client (no arg = ALL detected clients)
   .\install-oed.ps1 -List         list supported clients
-  .\install-oed.ps1 -Uninstall [client]
+  .\install-oed.ps1 -Uninstall [client]   no arg = unregister from all detected clients
 
 Clients:
   claude       Claude Code          claude mcp add -s user oed -- cmd /c "npx -y oed-mcp"
@@ -697,7 +775,7 @@ Clients:
   trae         Trae (intl)          %APPDATA%\Trae\User\mcp.json
   trae-cn      Trae (China)         %APPDATA%\Trae CN|Trae-CN\User\mcp.json
   codex        Codex CLI            %USERPROFILE%\.codex\config.toml
-  dsh          dsh                  dsh plugin --profile <name> add oed-mcp
+  dsh          dsh                  dsh plugin --profile <name> add oed-mcp (exe installs: profile edited directly)
   gemini       Gemini CLI           gemini extensions install https://github.com/Hourunze1997/oed-mcp
   qwen         Qwen Code            qwen extensions install https://github.com/Hourunze1997/oed-mcp:oed
   openclaw     OpenClaw             %USERPROFILE%\.openclaw\openclaw.json (mcp.servers)
@@ -740,35 +818,41 @@ Write-Host '  oed - one CLI for every openEuler Infra service'
 Write-Host '  https://gitcode.com/openeuler/oed-cli'
 Write-Host ''
 
-if (-not $Client) { $Client = Detect-Client }
-if (-not $Client) {
+# Explicit argument targets one client; no argument targets every client
+# detected on this machine (multi-client boxes get MCP + skills everywhere).
+if ($Client) { $Clients = @($Client) } else { $Clients = @(Detect-Clients) }
+if ($Clients.Count -eq 0) {
   warn 'No agent client detected - installing the CLI only.'
   warn 'Re-run with a client name to register MCP: .\install-oed.ps1 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|opencode|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>'
-  $Client = 'cli-only'
+  $Clients = @('cli-only')
 }
 
-info "Target client: $Client"
+info "Target client(s): $($Clients -join ', ')"
 if (-not $Uninstall) {
   Install-Cli
   Check-Node
-  Do-Register $Client
-  # cli-only promises not to touch any client configuration - ~/.claude\skills
-  # is Claude Code's turf, so it stays out of that path too.
-  if ($Client -ne 'cli-only') {
-    $skillDirs = @(Get-SkillDirs $Client)
-    if ($skillDirs.Count -eq 0) {
-      info "Client '$Client' has no Agent-Skills directory - skipping skills (MCP registration is unaffected)."
-    } else {
-      foreach ($d in $skillDirs) { Install-Skills $d }
+  foreach ($c in $Clients) {
+    Do-Register $c
+    # cli-only promises not to touch any client configuration - ~/.claude\skills
+    # is Claude Code's turf, so it stays out of that path too.
+    if ($c -ne 'cli-only') {
+      $skillDirs = @(Get-SkillDirs $c)
+      if ($skillDirs.Count -eq 0) {
+        info "Client '$c' has no Agent-Skills directory - skipping skills (MCP registration is unaffected)."
+      } else {
+        foreach ($d in $skillDirs) { Install-Skills $d }
+      }
     }
   }
 } else {
-  Do-Unregister $Client
-  foreach ($d in @(Get-SkillDirs $Client)) { Uninstall-Skills $d }
+  foreach ($c in $Clients) {
+    Do-Unregister $c
+    foreach ($d in @(Get-SkillDirs $c)) { Uninstall-Skills $d }
+  }
 }
 
 Write-Host ''
-if (-not $Uninstall -and $Client -ne 'cli-only') {
+if (-not $Uninstall -and $Clients -notcontains 'cli-only') {
   ok 'Done. Restart your client, then ask it: what is the openEuler security notice for CVE-2019-10082?'
 } else {
   ok 'Done. Verify with: oed --version'

@@ -33,9 +33,9 @@ oed installer — install the oed CLI, then register the oed-mcp MCP server
 with one agent client so it can call every openEuler Infra service.
 
 Usage:
-  install.sh [client]        install CLI + register client (no arg = auto-detect)
+  install.sh [client]        install CLI + register client (no arg = ALL detected clients)
   install.sh list            list supported clients
-  install.sh --uninstall [client]
+  install.sh --uninstall [client]   no arg = unregister from all detected clients
 
 Clients:
   claude       Claude Code          claude mcp add oed -- npx -y oed-mcp
@@ -43,14 +43,14 @@ Clients:
   trae         Trae (intl)          ~/.config/Trae/User/mcp.json
   trae-cn      Trae 中国版           ~/.config/Trae CN|Trae-CN/User/mcp.json
   codex        Codex CLI            ~/.codex/config.toml
-  dsh          dsh                  dsh plugin add oed-mcp
+  dsh          dsh                  dsh plugin add oed-mcp (exe installs: profile edited directly)
   gemini       Gemini CLI           gemini extensions install https://github.com/Hourunze1997/oed-mcp
   qwen         Qwen Code            qwen extensions install https://github.com/Hourunze1997/oed-mcp:oed
   openclaw     OpenClaw             openclaw mcp add oed -- npx -y oed-mcp
   opencode     OpenCode             ~/.config/opencode/opencode.json (mcp)
   hermes       Hermes Agent         ~/.hermes/config.yaml
   kimi         Kimi Code CLI        ~/.kimi-code/mcp.json
-  vscode       VS Code (Copilot)    code --add-mcp oed
+  vscode       VS Code (Copilot)    user mcp.json written directly (code --add-mcp as fallback)
   copilot      Copilot CLI          copilot mcp add oed -- npx -y oed-mcp
   antigravity  Antigravity          ~/.gemini/antigravity/mcp_config.json
   pi           Pi coding agent      pi mcp add oed -- npx -y oed-mcp
@@ -182,12 +182,12 @@ backup() { # backup <file>
 }
 
 # register_json <mcp.json-path>  — merge {"mcpServers":{"oed":{npx...}}} into a JSON config
-register_json() {
-  local f="$1"
+register_json() { # register_json <file> [root key, default mcpServers]
+  local f="$1" root="${2:-mcpServers}"
   backup "$f"
-  python3 - "$f" "$MCP_NPM" "$MCP_ARGS" <<'PY'
+  python3 - "$f" "$MCP_NPM" "$MCP_ARGS" "$root" <<'PY'
 import json, os, sys
-path, npm, args = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+path, npm, args, root = sys.argv[1], sys.argv[2], json.loads(sys.argv[3]), sys.argv[4]
 data = {}
 if os.path.exists(path) and os.path.getsize(path) > 0:
     try:
@@ -195,7 +195,7 @@ if os.path.exists(path) and os.path.getsize(path) > 0:
             data = json.load(fh)
     except json.JSONDecodeError as e:
         sys.exit(f"✗ {path} is not valid JSON ({e}). Fix or remove it and re-run — a backup was just written to {path}.oed-backup.")
-srv = data.setdefault("mcpServers", {})
+srv = data.setdefault(root, {})
 srv["oed"] = {"command": "npx", "args": args}
 os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 with open(path, "w", encoding="utf-8") as fh:
@@ -213,7 +213,10 @@ import json, os, sys
 path, npm = sys.argv[1], sys.argv[2]
 with open(path, encoding="utf-8") as fh:
     data = json.load(fh)
+# pop from every root shape the installer ever wrote (mcpServers; VS Code's servers)
 removed = data.get("mcpServers", {}).pop("oed", None)
+if removed is None:
+    removed = data.get("servers", {}).pop("oed", None)
 if removed is not None:
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
@@ -245,7 +248,7 @@ register_claude() {
 register_dsh() {
   local prof="${DSH_PROFILE:-}"
   if [ -z "$prof" ]; then
-    local dir="$HOME/.dsh/profiles"
+    local dir="${DSH_HOME:-$HOME/.dsh}/profiles"
     if [ -d "$dir" ]; then
       local count
       count=$(ls -1 "$dir" 2>/dev/null | grep -c . || true)
@@ -260,10 +263,114 @@ register_dsh() {
     fi
   fi
   if [ -n "$prof" ]; then
-    dsh plugin --profile "$prof" add "$MCP_NPM" &&
+    if dsh plugin --profile "$prof" add "$MCP_NPM" 2>/dev/null; then
       ok "Added $MCP_NPM as a dsh plugin in profile '$prof'"
+    else
+      # exe distributions (notably the Windows installer) ship no usable
+      # `dsh plugin` subcommand — fall back to editing the profile directly.
+      warn "dsh CLI failed — writing the profile directly (exe installs have no plugin subcommand)"
+      register_dsh_profile "$prof"
+    fi
   else
     warn "No dsh profile found. Manual: dsh plugin --profile <name> add $MCP_NPM"
+  fi
+}
+
+# Direct dsh profile registration — the fallback for exe installs whose CLI
+# has no `plugin` subcommand. A dsh profile is a pnpm workspace whose
+# package.json lists the plugin both as a dependency and in
+# dsh.profile.bundles (shape verified against a profile created by
+# `dsh plugin add` itself); the CLI does exactly these two edits plus the
+# package install, so we redo them by hand.
+register_dsh_profile() {
+  local prof="$1" dir="${DSH_HOME:-$HOME/.dsh}/profiles/$prof"
+  if [ ! -f "$dir/package.json" ]; then
+    warn "No dsh profile at $dir — start dsh once to create it, then re-run."
+    return 0
+  fi
+  backup "$dir/package.json"
+  python3 - "$dir/package.json" "$MCP_NPM" <<'PY'
+import json, sys
+path, pkg = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh)
+deps = data.setdefault("dependencies", {})
+if deps.get(pkg) is None:
+    deps[pkg] = "latest"
+bundles = data.setdefault("dsh", {}).setdefault("profile", {}).setdefault("bundles", [])
+if pkg not in bundles:
+    bundles.append(pkg)
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2, ensure_ascii=False)
+    fh.write("\n")
+PY
+  local tool=""
+  if have pnpm; then tool="pnpm"
+  elif have npm; then tool="npm"
+  fi
+  if [ -z "$tool" ]; then
+    warn "Neither pnpm nor npm found — package.json updated; run the install inside '$dir' yourself."
+    return 0
+  fi
+  if [ "$tool" = pnpm ]; then
+    if (cd "$dir" && pnpm install --silent); then
+      ok "Installed $MCP_NPM into dsh profile '$prof' (pnpm)"
+    else
+      warn "pnpm install failed in '$dir' — package.json is updated; run it manually to see the error"
+    fi
+  else
+    if (cd "$dir" && npm install --silent --no-fund --no-audit); then
+      ok "Installed $MCP_NPM into dsh profile '$prof' (npm)"
+    else
+      warn "npm install failed in '$dir' — package.json is updated; run it manually to see the error"
+    fi
+  fi
+}
+
+unregister_dsh() {
+  local pdir prof cleaned=0
+  if have dsh; then
+    for pdir in "${DSH_HOME:-$HOME/.dsh}/profiles"/*/; do
+      [ -d "$pdir" ] || continue
+      prof=$(basename "$pdir")
+      if dsh plugin --profile "$prof" remove "$MCP_NPM" 2>/dev/null; then
+        ok "Removed $MCP_NPM from dsh profile '$prof'"
+        cleaned=1
+      fi
+    done
+  fi
+  # direct clean for profiles the fallback wrote (or where the CLI refused)
+  for pdir in "${DSH_HOME:-$HOME/.dsh}/profiles"/*/; do
+    [ -d "$pdir" ] || continue
+    if python3 - "$pdir/package.json" "$MCP_NPM" <<'PY' >/dev/null 2>&1
+import json, os, sys
+path, pkg = sys.argv[1], sys.argv[2]
+if not os.path.exists(path):
+    sys.exit(1)
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh)
+changed = False
+deps = data.get("dependencies", {})
+if pkg in deps:
+    del deps[pkg]
+    changed = True
+bundles = data.get("dsh", {}).get("profile", {}).get("bundles", [])
+if pkg in bundles:
+    bundles.remove(pkg)
+    changed = True
+if not changed:
+    sys.exit(1)
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2, ensure_ascii=False)
+    fh.write("\n")
+PY
+    then
+      ok "Removed $MCP_NPM from $pdir/package.json"
+      cleaned=1
+    fi
+  done
+  if [ "$cleaned" = 0 ]; then
+    warn "Remove manually: dsh plugin --profile <name> remove $MCP_NPM (check the profile's bundle patch)."
   fi
 }
 
@@ -499,13 +606,26 @@ PY
 # reliable cross-platform user mcp.json path to pre-check, so always run it —
 # adding the same name twice just overwrites the entry.
 register_vscode() {
+  # Direct-first (mirrors install.ps1): writing the user mcp.json needs no
+  # VS Code process — `code --add-mcp` refuses to run as root / headless and
+  # would kill the whole multi-client run under set -e.
+  local d hit=0
+  for d in "$HOME/.config/Code/User" "$HOME/.config/Code - Insiders/User" "$HOME/.config/VSCodium/User" \
+           "$HOME/Library/Application Support/Code/User" "$HOME/Library/Application Support/Code - Insiders/User" \
+           "$HOME/Library/Application Support/VSCodium/User"; do
+    if [ -d "$d" ]; then register_json "$d/mcp.json" servers; hit=1; fi
+  done
+  if [ "$hit" = 1 ]; then return 0; fi
   if have code; then
-    code --add-mcp "{\"name\":\"oed\",\"command\":\"npx\",\"args\":[\"-y\",\"$MCP_NPM\"]}" &&
+    if code --add-mcp "{\"name\":\"oed\",\"command\":\"npx\",\"args\":[\"-y\",\"$MCP_NPM\"]}"; then
       ok "Registered oed MCP server (user scope) via code --add-mcp"
+      return 0
+    fi
+    warn "code --add-mcp failed (root / headless session?) — start VS Code once so its user dir exists, then re-run"
   else
-    warn "code CLI not found. In VS Code: Command Palette → 'MCP: Add Server', or manually:"
-    printf '      code --add-mcp '"'"'{"name":"oed","command":"npx","args":["-y","%s"]}'"'"'\n' "$MCP_NPM"
+    warn "code CLI not found. In VS Code: Command Palette → 'MCP: Add Server'"
   fi
+  printf '      mcp.json: {"servers":{"oed":{"command":"npx","args":["-y","%s"]}}}\n' "$MCP_NPM"
 }
 
 register_copilot_cli() {
@@ -758,13 +878,13 @@ do_unregister() {
                unregister_json "$HOME/.config/Trae-CN/User/mcp.json"
                unregister_json "$HOME/.trae-cn/mcp.json" ;;
     codex)     unregister_codex ;;
-    dsh)       warn "Remove manually: dsh plugin --profile <name> remove $MCP_NPM (check the profile's bundle patch)." ;;
+    dsh)       unregister_dsh ;;
     openclaw)  unregister_openclaw ;;
     opencode)  unregister_opencode ;;
     hermes)    unregister_hermes ;;
     kimi)      unregister_json "${KIMI_CODE_HOME:-$HOME/.kimi-code}/mcp.json" ;;
-    vscode)    for f in "$HOME/.config/Code/User/mcp.json" "$HOME/Library/Application Support/Code/User/mcp.json"; do
-                 if [ -f "$f" ]; then unregister_json "$f"; fi
+    vscode)    for f in "$HOME/.config/Code/User/mcp.json" "$HOME/.config/Code - Insiders/User/mcp.json" "$HOME/.config/VSCodium/User/mcp.json" "$HOME/Library/Application Support/Code/User/mcp.json" "$HOME/Library/Application Support/Code - Insiders/User/mcp.json" "$HOME/Library/Application Support/VSCodium/User/mcp.json"; do
+                 unregister_json "$f"
                done ;;
     copilot)   unregister_json "$HOME/.copilot/mcp-config.json" ;;
     antigravity) unregister_json "$HOME/.gemini/antigravity/mcp_config.json" ;;
@@ -778,22 +898,27 @@ do_unregister() {
   esac
 }
 
-detect_client() {
+# Echo EVERY agent client present on this machine, one per line, deduped —
+# a no-argument run targets all of them, not just the first match. Same
+# probes in the same order as the old single-client detection; one client
+# can be detected by several probes (binary + config dir), hence the dedupe.
+detect_clients() {
+  local c d found=""
   for c in claude cursor dsh gemini qwen codex openclaw opencode kimi hermes copilot pi nanobot; do
-    if have "$c"; then echo "$c"; return 0; fi
+    if have "$c"; then found="$found $c"; fi
   done
-  if have code; then echo vscode; return 0; fi
-  if have kiro-cli; then echo kiro; return 0; fi
+  if have code; then found="$found vscode"; fi
+  if have kiro-cli; then found="$found kiro"; fi
   for d in "$HOME/.config/Trae CN" "$HOME/.config/Trae-CN"; do
-    if [ -d "$d" ]; then echo trae-cn; return 0; fi
+    if [ -d "$d" ]; then found="$found trae-cn"; fi
   done
-  if [ -d "$HOME/.config/Trae" ]; then echo trae; return 0; fi
+  if [ -d "$HOME/.config/Trae" ]; then found="$found trae"; fi
   for d in "$HOME/.cursor" "$HOME/.codex" "$HOME/.trae" "$HOME/.trae-cn" "$HOME/.openclaw" "$HOME/.hermes" "$HOME/.gemini/antigravity" "$HOME/.kiro" "$HOME/.nanobot" "$HOME/.pi"; do
-    if [ -d "$d" ]; then basename "$d" | sed 's/^\.//'; return 0; fi
+    if [ -d "$d" ]; then found="$found $(basename "$d" | sed 's/^\.//')"; fi
   done
-  if [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/opencode" ]; then echo opencode; return 0; fi
-  if [ -d "${KIMI_CODE_HOME:-$HOME/.kimi-code}" ]; then echo kimi; return 0; fi
-  echo ""
+  if [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/opencode" ]; then found="$found opencode"; fi
+  if [ -d "${KIMI_CODE_HOME:-$HOME/.kimi-code}" ]; then found="$found kimi"; fi
+  echo $found | tr ' ' '\n' | awk 'NF && !seen[$0]++'
 }
 
 main() {
@@ -814,33 +939,48 @@ main() {
   echo "  https://gitcode.com/openeuler/oed-cli"
   echo ""
 
-  [ -n "$client" ] || { client="$(detect_client)"; }
-  [ -n "$client" ] || { warn "No agent client detected — installing the CLI only."; warn "Re-run with a client name to register MCP: $0 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|opencode|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>"; client="cli-only"; }
+  # Explicit argument targets one client; no argument targets every client
+  # detected on this machine (multi-client boxes get MCP + skills everywhere).
+  local clients=""
+  if [ -n "$client" ]; then
+    clients="$client"
+  else
+    clients="$(detect_clients)"
+  fi
+  if [ -z "$clients" ]; then
+    warn "No agent client detected — installing the CLI only."
+    warn "Re-run with a client name to register MCP: $0 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|opencode|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>"
+    clients="cli-only"
+  fi
 
-  info "Target client: $client"
-  local d skill_dirs
+  info "Target client(s): $(echo $clients | tr '\n' ' ')"
+  local d c skill_dirs
   if [ "$action" = "register" ]; then
     install_cli
     check_node
-    do_register "$client"
-    # Install the repo's skills into every Agent-Skills directory the client
-    # reads. cli-only promises not to touch any client configuration — and
-    # ~/.claude/skills is Claude Code's turf — so it stays out of that path.
-    if [ "$client" != "cli-only" ]; then
-      skill_dirs="$(skills_dirs_for "$client")"
-      if [ -z "$skill_dirs" ]; then
-        info "Client '$client' has no Agent-Skills directory — skipping skills (MCP registration is unaffected)."
-      else
-        for d in $skill_dirs; do install_skills "$d"; done
+    for c in $clients; do
+      do_register "$c"
+      # Install the repo's skills into every Agent-Skills directory the client
+      # reads. cli-only promises not to touch any client configuration — and
+      # ~/.claude/skills is Claude Code's turf — so it stays out of that path.
+      if [ "$c" != "cli-only" ]; then
+        skill_dirs="$(skills_dirs_for "$c")"
+        if [ -z "$skill_dirs" ]; then
+          info "Client '$c' has no Agent-Skills directory — skipping skills (MCP registration is unaffected)."
+        else
+          for d in $skill_dirs; do install_skills "$d"; done
+        fi
       fi
-    fi
+    done
   else
-    do_unregister "$client"
-    for d in $(skills_dirs_for "$client"); do uninstall_skills "$d"; done
+    for c in $clients; do
+      do_unregister "$c"
+      for d in $(skills_dirs_for "$c"); do uninstall_skills "$d"; done
+    done
   fi
 
   echo ""
-  if [ "$action" = "register" ] && [ "$client" != "cli-only" ]; then
+  if [ "$action" = "register" ] && [ "$clients" != "cli-only" ]; then
     ok "Done. Restart your client, then ask it: 查一下 CVE-2019-10082 在 openEuler 的安全公告"
   else
     ok "Done. Verify with: oed --version"
