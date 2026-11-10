@@ -65,9 +65,14 @@ or `oed ag login` (AtomGit) afterwards — interactively, by you.
 Skills:
   the repo's agent skills (.claude/skills/*) are installed into the
   Agent-Skills directories the chosen client reads — Claude Code:
-  ~/.claude/skills, dsh: ~/.dsh/skills, hermes: ~/.hermes/skills, and the
-  cross-agent standard ~/.agents/skills (shared by OpenClaw, Kimi Code,
-  VS Code, Copilot CLI). Clients without skills support skip skills.
+  ~/.claude/skills, dsh: ~/.dsh/skills, hermes: ~/.hermes/skills,
+  trae: ~/.trae/skills, trae-cn: ~/.trae-cn/skills, nanobot:
+  ~/.nanobot/workspace/skills, kiro: ~/.kiro/skills,
+  opencode: ~/.config/opencode/skills, cursor: ~/.cursor/skills,
+  codex: ~/.codex/skills, gemini: ~/.gemini/skills, qwen: ~/.qwen/skills,
+  and the cross-agent standard ~/.agents/skills (shared by OpenClaw,
+  Kimi Code, VS Code, Copilot CLI and Pi). Clients without skills
+  support skip skills.
   Re-run this script to pick up skills added upstream; --uninstall removes
   the ones it installed (tracked in a .oed-installed receipt; your own
   skills are never touched).
@@ -617,20 +622,37 @@ else:
 PY
 }
 
-# Skills go where the chosen client actually reads them — verified in each
-# tool's code / --help (Nov 2026): Claude Code ~/.claude/skills (its binary
-# knows no other dir), dsh ~/.dsh/skills (its skill-filesystem user root,
-# honoring $DSH_HOME), hermes ~/.hermes/skills (does NOT read the standard
-# dir), and ~/.agents/skills — the cross-agent standard shared by OpenClaw,
-# Kimi Code, VS Code (Copilot) and Copilot CLI. Clients without Agent-Skills
-# support get none.
+# Skills go where the chosen client actually reads them — verified per tool
+# in code / --help / official docs (Nov 2026): Claude Code ~/.claude/skills
+# (its binary knows no other dir), dsh ~/.dsh/skills (its skill-filesystem
+# user root, honoring $DSH_HOME), hermes ~/.hermes/skills (does NOT read the
+# standard dir), trae ~/.trae/skills / trae-cn ~/.trae-cn/skills
+# (product-global), nanobot ~/.nanobot/workspace/skills (its default
+# workspace), kiro ~/.kiro/skills (kiro.dev/docs/cli/skills; CLI and IDE
+# share it), opencode ~/.config/opencode/skills (its own config dir — read
+# unconditionally, unlike ~/.agents/skills which OPENCODE_DISABLE_EXTERNAL_
+# SKILLS can turn off; XDG_CONFIG_HOME honored), cursor ~/.cursor/skills
+# (cursor-agent user-scope table), codex $CODEX_HOME/skills, gemini
+# ~/.gemini/skills, qwen ~/.qwen/skills ($QWEN_HOME honored, wins ties),
+# and ~/.agents/skills — the cross-agent standard shared by OpenClaw, Kimi
+# Code, VS Code, Copilot CLI and Pi. Clients without Agent-Skills support
+# get none.
 skills_dirs_for() {
   case "$1" in
-    claude) echo "$SKILLS_DIR" ;;
-    dsh)    echo "${DSH_HOME:-$HOME/.dsh}/skills" ;;
-    hermes) echo "${HERMES_HOME:-$HOME/.hermes}/skills" ;;
-    openclaw|kimi|vscode|copilot) echo "$HOME/.agents/skills" ;;
-    *)      echo "" ;;
+    claude)   echo "$SKILLS_DIR" ;;
+    dsh)      echo "${DSH_HOME:-$HOME/.dsh}/skills" ;;
+    hermes)   echo "${HERMES_HOME:-$HOME/.hermes}/skills" ;;
+    trae)     echo "$HOME/.trae/skills" ;;
+    trae-cn)  echo "$HOME/.trae-cn/skills" ;;
+    nanobot)  echo "$HOME/.nanobot/workspace/skills" ;;
+    kiro)     echo "$HOME/.kiro/skills" ;;
+    opencode) echo "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills" ;;
+    cursor)   echo "$HOME/.cursor/skills" ;;
+    codex)    echo "${CODEX_HOME:-$HOME/.codex}/skills" ;;
+    gemini)   echo "$HOME/.gemini/skills" ;;
+    qwen)     echo "${QWEN_HOME:-$HOME/.qwen}/skills" ;;
+    openclaw|kimi|vscode|copilot|pi) echo "$HOME/.agents/skills" ;;
+    *)        echo "" ;;
   esac
 }
 
