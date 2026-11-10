@@ -33,9 +33,9 @@ oed installer — install the oed CLI, then register the oed-mcp MCP server
 with one agent client so it can call every openEuler Infra service.
 
 Usage:
-  install.sh [client]        install CLI + register client (no arg = auto-detect)
+  install.sh [client]        install CLI + register client (no arg = ALL detected clients)
   install.sh list            list supported clients
-  install.sh --uninstall [client]
+  install.sh --uninstall [client]   no arg = unregister from all detected clients
 
 Clients:
   claude       Claude Code          claude mcp add oed -- npx -y oed-mcp
@@ -778,22 +778,27 @@ do_unregister() {
   esac
 }
 
-detect_client() {
+# Echo EVERY agent client present on this machine, one per line, deduped —
+# a no-argument run targets all of them, not just the first match. Same
+# probes in the same order as the old single-client detection; one client
+# can be detected by several probes (binary + config dir), hence the dedupe.
+detect_clients() {
+  local c d found=""
   for c in claude cursor dsh gemini qwen codex openclaw opencode kimi hermes copilot pi nanobot; do
-    if have "$c"; then echo "$c"; return 0; fi
+    if have "$c"; then found="$found $c"; fi
   done
-  if have code; then echo vscode; return 0; fi
-  if have kiro-cli; then echo kiro; return 0; fi
+  if have code; then found="$found vscode"; fi
+  if have kiro-cli; then found="$found kiro"; fi
   for d in "$HOME/.config/Trae CN" "$HOME/.config/Trae-CN"; do
-    if [ -d "$d" ]; then echo trae-cn; return 0; fi
+    if [ -d "$d" ]; then found="$found trae-cn"; fi
   done
-  if [ -d "$HOME/.config/Trae" ]; then echo trae; return 0; fi
+  if [ -d "$HOME/.config/Trae" ]; then found="$found trae"; fi
   for d in "$HOME/.cursor" "$HOME/.codex" "$HOME/.trae" "$HOME/.trae-cn" "$HOME/.openclaw" "$HOME/.hermes" "$HOME/.gemini/antigravity" "$HOME/.kiro" "$HOME/.nanobot" "$HOME/.pi"; do
-    if [ -d "$d" ]; then basename "$d" | sed 's/^\.//'; return 0; fi
+    if [ -d "$d" ]; then found="$found $(basename "$d" | sed 's/^\.//')"; fi
   done
-  if [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/opencode" ]; then echo opencode; return 0; fi
-  if [ -d "${KIMI_CODE_HOME:-$HOME/.kimi-code}" ]; then echo kimi; return 0; fi
-  echo ""
+  if [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/opencode" ]; then found="$found opencode"; fi
+  if [ -d "${KIMI_CODE_HOME:-$HOME/.kimi-code}" ]; then found="$found kimi"; fi
+  echo $found | tr ' ' '\n' | awk 'NF && !seen[$0]++'
 }
 
 main() {
@@ -814,33 +819,48 @@ main() {
   echo "  https://gitcode.com/openeuler/oed-cli"
   echo ""
 
-  [ -n "$client" ] || { client="$(detect_client)"; }
-  [ -n "$client" ] || { warn "No agent client detected — installing the CLI only."; warn "Re-run with a client name to register MCP: $0 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|opencode|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>"; client="cli-only"; }
+  # Explicit argument targets one client; no argument targets every client
+  # detected on this machine (multi-client boxes get MCP + skills everywhere).
+  local clients=""
+  if [ -n "$client" ]; then
+    clients="$client"
+  else
+    clients="$(detect_clients)"
+  fi
+  if [ -z "$clients" ]; then
+    warn "No agent client detected — installing the CLI only."
+    warn "Re-run with a client name to register MCP: $0 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|opencode|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>"
+    clients="cli-only"
+  fi
 
-  info "Target client: $client"
-  local d skill_dirs
+  info "Target client(s): $(echo $clients | tr '\n' ' ')"
+  local d c skill_dirs
   if [ "$action" = "register" ]; then
     install_cli
     check_node
-    do_register "$client"
-    # Install the repo's skills into every Agent-Skills directory the client
-    # reads. cli-only promises not to touch any client configuration — and
-    # ~/.claude/skills is Claude Code's turf — so it stays out of that path.
-    if [ "$client" != "cli-only" ]; then
-      skill_dirs="$(skills_dirs_for "$client")"
-      if [ -z "$skill_dirs" ]; then
-        info "Client '$client' has no Agent-Skills directory — skipping skills (MCP registration is unaffected)."
-      else
-        for d in $skill_dirs; do install_skills "$d"; done
+    for c in $clients; do
+      do_register "$c"
+      # Install the repo's skills into every Agent-Skills directory the client
+      # reads. cli-only promises not to touch any client configuration — and
+      # ~/.claude/skills is Claude Code's turf — so it stays out of that path.
+      if [ "$c" != "cli-only" ]; then
+        skill_dirs="$(skills_dirs_for "$c")"
+        if [ -z "$skill_dirs" ]; then
+          info "Client '$c' has no Agent-Skills directory — skipping skills (MCP registration is unaffected)."
+        else
+          for d in $skill_dirs; do install_skills "$d"; done
+        fi
       fi
-    fi
+    done
   else
-    do_unregister "$client"
-    for d in $(skills_dirs_for "$client"); do uninstall_skills "$d"; done
+    for c in $clients; do
+      do_unregister "$c"
+      for d in $(skills_dirs_for "$c"); do uninstall_skills "$d"; done
+    done
   fi
 
   echo ""
-  if [ "$action" = "register" ] && [ "$client" != "cli-only" ]; then
+  if [ "$action" = "register" ] && [ "$clients" != "cli-only" ]; then
     ok "Done. Restart your client, then ask it: 查一下 CVE-2019-10082 在 openEuler 的安全公告"
   else
     ok "Done. Verify with: oed --version"

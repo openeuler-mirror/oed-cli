@@ -663,22 +663,26 @@ function Do-Unregister([string]$c) {
   }
 }
 
-function Detect-Client {
+# Every agent client present on this machine, deduped, in probe order - a
+# no-argument run targets all of them, not just the first match. One client
+# can be detected by several probes (binary + config dir), hence the dedupe.
+function Detect-Clients {
+  $found = @()
   foreach ($c in 'claude', 'cursor', 'dsh', 'gemini', 'qwen', 'codex', 'openclaw', 'opencode', 'kimi', 'hermes', 'copilot', 'pi', 'nanobot') {
-    if (have $c) { return $c }
+    if (have $c) { $found += $c }
   }
-  if (have code) { return 'vscode' }
-  if (have 'kiro-cli') { return 'kiro' }
-  foreach ($d in 'Trae CN', 'Trae-CN') { if (Test-Path (Join-Path $env:APPDATA $d)) { return 'trae-cn' } }
-  if (Test-Path (Join-Path $env:APPDATA 'Trae')) { return 'trae' }
+  if (have code) { $found += 'vscode' }
+  if (have 'kiro-cli') { $found += 'kiro' }
+  foreach ($d in 'Trae CN', 'Trae-CN') { if (Test-Path (Join-Path $env:APPDATA $d)) { $found += 'trae-cn' } }
+  if (Test-Path (Join-Path $env:APPDATA 'Trae')) { $found += 'trae' }
   foreach ($m in @(@('.cursor', 'cursor'), @('.codex', 'codex'), @('.trae', 'trae'), @('.trae-cn', 'trae-cn'),
                    @('.openclaw', 'openclaw'), @('.hermes', 'hermes'), @('.gemini\antigravity', 'antigravity'),
                    @('.kiro', 'kiro'), @('.nanobot', 'nanobot'), @('.pi', 'pi'))) {
-    if (Test-Path (Join-Path $env:USERPROFILE $m[0])) { return $m[1] }
+    if (Test-Path (Join-Path $env:USERPROFILE $m[0])) { $found += $m[1] }
   }
-  if (Test-Path (Join-Path $env:USERPROFILE '.config\opencode')) { return 'opencode' }
-  if (Test-Path $KimiHome) { return 'kimi' }
-  return ''
+  if (Test-Path (Join-Path $env:USERPROFILE '.config\opencode')) { $found += 'opencode' }
+  if (Test-Path $KimiHome) { $found += 'kimi' }
+  return @($found | Select-Object -Unique)
 }
 
 function Print-Usage {
@@ -687,9 +691,9 @@ oed installer (Windows) - install the oed CLI, then register the oed-mcp
 MCP server with one agent client so it can call every openEuler Infra service.
 
 Usage:
-  .\install-oed.ps1 [client]      install CLI + register client (no arg = auto-detect)
+  .\install-oed.ps1 [client]      install CLI + register client (no arg = ALL detected clients)
   .\install-oed.ps1 -List         list supported clients
-  .\install-oed.ps1 -Uninstall [client]
+  .\install-oed.ps1 -Uninstall [client]   no arg = unregister from all detected clients
 
 Clients:
   claude       Claude Code          claude mcp add -s user oed -- cmd /c "npx -y oed-mcp"
@@ -740,35 +744,41 @@ Write-Host '  oed - one CLI for every openEuler Infra service'
 Write-Host '  https://gitcode.com/openeuler/oed-cli'
 Write-Host ''
 
-if (-not $Client) { $Client = Detect-Client }
-if (-not $Client) {
+# Explicit argument targets one client; no argument targets every client
+# detected on this machine (multi-client boxes get MCP + skills everywhere).
+if ($Client) { $Clients = @($Client) } else { $Clients = @(Detect-Clients) }
+if ($Clients.Count -eq 0) {
   warn 'No agent client detected - installing the CLI only.'
   warn 'Re-run with a client name to register MCP: .\install-oed.ps1 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|opencode|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>'
-  $Client = 'cli-only'
+  $Clients = @('cli-only')
 }
 
-info "Target client: $Client"
+info "Target client(s): $($Clients -join ', ')"
 if (-not $Uninstall) {
   Install-Cli
   Check-Node
-  Do-Register $Client
-  # cli-only promises not to touch any client configuration - ~/.claude\skills
-  # is Claude Code's turf, so it stays out of that path too.
-  if ($Client -ne 'cli-only') {
-    $skillDirs = @(Get-SkillDirs $Client)
-    if ($skillDirs.Count -eq 0) {
-      info "Client '$Client' has no Agent-Skills directory - skipping skills (MCP registration is unaffected)."
-    } else {
-      foreach ($d in $skillDirs) { Install-Skills $d }
+  foreach ($c in $Clients) {
+    Do-Register $c
+    # cli-only promises not to touch any client configuration - ~/.claude\skills
+    # is Claude Code's turf, so it stays out of that path too.
+    if ($c -ne 'cli-only') {
+      $skillDirs = @(Get-SkillDirs $c)
+      if ($skillDirs.Count -eq 0) {
+        info "Client '$c' has no Agent-Skills directory - skipping skills (MCP registration is unaffected)."
+      } else {
+        foreach ($d in $skillDirs) { Install-Skills $d }
+      }
     }
   }
 } else {
-  Do-Unregister $Client
-  foreach ($d in @(Get-SkillDirs $Client)) { Uninstall-Skills $d }
+  foreach ($c in $Clients) {
+    Do-Unregister $c
+    foreach ($d in @(Get-SkillDirs $c)) { Uninstall-Skills $d }
+  }
 }
 
 Write-Host ''
-if (-not $Uninstall -and $Client -ne 'cli-only') {
+if (-not $Uninstall -and $Clients -notcontains 'cli-only') {
   ok 'Done. Restart your client, then ask it: what is the openEuler security notice for CVE-2019-10082?'
 } else {
   ok 'Done. Verify with: oed --version'

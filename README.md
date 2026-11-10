@@ -159,10 +159,10 @@ The first `oed <service> <operation>` call after install will pull a fresh disco
 
 ## One-line install: CLI + MCP
 
-The installer does two things: installs the `oed` CLI (pipx → uv → pip, skipped when `oed` is already on PATH), then registers the [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server with your agent client — so any MCP-capable agent can drive every openEuler service:
+The installer does two things: installs the `oed` CLI (pipx → uv → pip, skipped when `oed` is already on PATH), then registers the [`oed-mcp`](https://github.com/Hourunze1997/oed-mcp) MCP server with your agent client(s) — so any MCP-capable agent can drive every openEuler service. With no argument it targets **every client detected on the machine**; pass a name to target just one:
 
 ```bash
-# auto-detect the client, or pick one explicitly
+# no argument = register with every detected client (MCP + skills for each)
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
 ```
@@ -183,9 +183,9 @@ Windows differences: the MCP launch command is registered as `cmd /c "npx -y oed
 What it does:
 
 1. Installs the `oed` CLI and verifies `oed --version`.
-2. Registers `npx -y oed-mcp` with the chosen client — merging the client's config in place and backing it up to `<file>.oed-backup` first. Prefers each client's own CLI when available (`claude mcp add`, `openclaw mcp add`, `copilot mcp add`, `pi mcp add`, `code --add-mcp`, `dsh plugin add`, `gemini/qwen extensions install`); edits config files directly for the rest (`mcp.json` for Cursor/Trae/Kimi Code, `config.toml` for Codex, `config.yaml` for Hermes Agent, `mcp_config.json` for Antigravity, `tools.mcpServers` for Nanobot, `~/.kiro/settings/mcp.json` for Kiro, the `mcp` key of `~/.config/opencode/opencode.json` for OpenCode).
-3. Installs the repo's agent skills into the Agent-Skills directory the chosen client reads — `~/.claude/skills` for Claude Code, `~/.dsh/skills` for dsh, `~/.hermes/skills` for Hermes Agent, `~/.trae/skills` / `~/.trae-cn/skills` for Trae, `~/.nanobot/workspace/skills` for Nanobot, `~/.kiro/skills` for Kiro, `~/.config/opencode/skills` for OpenCode, `~/.cursor/skills` for Cursor, `~/.codex/skills` for Codex, `~/.gemini/skills` for Gemini CLI, `~/.qwen/skills` for Qwen Code, `~/.gemini/config/skills` for Antigravity, and the cross-agent standard `~/.agents/skills` for OpenClaw / Kimi Code / VS Code / Copilot CLI / Pi. Every supported client reads skills. Receipt-tracked (`.oed-installed`), so re-running picks up skills added upstream and `--uninstall` only removes what the script put there.
-4. Is idempotent and reversible: re-running is safe; `bash install.sh --uninstall <client>` removes only the `oed` entry.
+2. Registers `npx -y oed-mcp` with every detected client (or the one you named) — merging each client's config in place and backing it up to `<file>.oed-backup` first. Prefers each client's own CLI when available (`claude mcp add`, `openclaw mcp add`, `copilot mcp add`, `pi mcp add`, `code --add-mcp`, `dsh plugin add`, `gemini/qwen extensions install`); edits config files directly for the rest (`mcp.json` for Cursor/Trae/Kimi Code, `config.toml` for Codex, `config.yaml` for Hermes Agent, `mcp_config.json` for Antigravity, `tools.mcpServers` for Nanobot, `~/.kiro/settings/mcp.json` for Kiro, the `mcp` key of `~/.config/opencode/opencode.json` for OpenCode).
+3. Installs the repo's agent skills into the Agent-Skills directory each chosen client reads — `~/.claude/skills` for Claude Code, `~/.dsh/skills` for dsh, `~/.hermes/skills` for Hermes Agent, `~/.trae/skills` / `~/.trae-cn/skills` for Trae, `~/.nanobot/workspace/skills` for Nanobot, `~/.kiro/skills` for Kiro, `~/.config/opencode/skills` for OpenCode, `~/.cursor/skills` for Cursor, `~/.codex/skills` for Codex, `~/.gemini/skills` for Gemini CLI, `~/.qwen/skills` for Qwen Code, `~/.gemini/config/skills` for Antigravity, and the cross-agent standard `~/.agents/skills` for OpenClaw / Kimi Code / VS Code / Copilot CLI / Pi. Every supported client reads skills. Receipt-tracked (`.oed-installed`), so re-running picks up skills added upstream and `--uninstall` only removes what the script put there.
+4. Is idempotent and reversible: re-running is safe; `bash install.sh --uninstall [client]` removes only the `oed` entry (no argument = from every detected client).
 
 No secrets are handled. Most gateway services work anonymously; for the ones that need identity, run `oed login` (openEuler oneid) or `oed ag login` (AtomGit) yourself afterwards — see the auth sections below.
 

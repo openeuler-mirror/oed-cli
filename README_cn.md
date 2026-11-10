@@ -81,7 +81,7 @@ pip install -e .
 
 linux客户端:
 ```bash
-# 自动探测客户端，或显式指定
+# 不带参数 = 给机器上检测到的所有客户端注册（MCP + skills）；也可显式指定一个
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash
 curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash -s cursor
 ```
@@ -90,7 +90,7 @@ curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bas
 
 windows客户端:
 ```powershell
-# 自动探测客户端，或显式指定
+# 不带参数 = 给机器上检测到的所有客户端注册（MCP + skills）；也可显式指定一个
 powershell -c "irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1 | iex"
 
 powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
