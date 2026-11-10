@@ -96,7 +96,7 @@ powershell -c "irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.
 powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
 ```
 
-脚本会把仓库自带的 Agent Skills 装进所选客户端读取的技能目录（Claude Code：`~/.claude/skills`；dsh：`~/.dsh/skills`；Hermes Agent：`~/.hermes/skills`；Trae：`~/.trae/skills`；Nanobot：`~/.nanobot/workspace/skills`；Kiro：`~/.kiro/skills`；OpenCode：`~/.config/opencode/skills`；Cursor：`~/.cursor/skills`；Codex：`~/.codex/skills`；Gemini CLI：`~/.gemini/skills`；Qwen Code：`~/.qwen/skills`；Antigravity：`~/.gemini/config/skills`；OpenClaw / Kimi Code / VS Code / Copilot CLI / Pi：跨工具标准位 `~/.agents/skills`），全部 18 个客户端都支持 skills 安装，重复执行即可同步上游新增的 skills。
+脚本会把仓库自带的 Agent Skills 装进所选客户端读取的技能目录（Claude Code：`~/.claude/skills`；dsh：`~/.dsh/skills`；Hermes Agent：`~/.hermes/skills`；Trae：`~/.trae/skills`；Nanobot：`~/.nanobot/workspace/skills`；Kiro：`~/.kiro/skills`；OpenCode：`~/.config/opencode/skills`；Cursor：`~/.cursor/skills`；Codex：`~/.codex/skills`；Gemini CLI：`~/.gemini/skills`；Qwen Code：`~/.qwen/skills`；Antigravity：`~/.gemini/config/skills`；OpenClaw / Kimi Code / VS Code / Copilot CLI / Pi：跨工具标准位 `~/.agents/skills`），全部 18 个客户端都支持 skills 安装，重复执行即可同步上游新增的 skills。客户端自身的 CLI 失败时（如 dsh 的 exe 安装没有 `plugin` 子命令、`code --add-mcp` 在 root/无头环境下被拒），脚本会退回直接写该客户端的配置文件，不会中途退出。
 
 安装完成后，验证是否成功：
 

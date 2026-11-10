@@ -502,8 +502,82 @@ function Register-Dsh {
   if ($prof) {
     if ((Invoke-Quiet { dsh plugin --profile $prof add oed-mcp }) -eq 0) {
       ok "Added oed-mcp as a dsh plugin in profile '$prof'"
-    } else { warn 'dsh plugin add failed - run it manually.' }
+    } else {
+      # exe distributions ship no usable `dsh plugin` subcommand - fall back
+      # to editing the profile directly.
+      warn 'dsh CLI failed - writing the profile directly (exe installs have no plugin subcommand)'
+      Register-DshProfile $prof
+    }
   } else { warn "No dsh profile found. Manual: dsh plugin --profile <name> add $NpmPkg" }
+}
+
+# Direct dsh profile registration - the fallback for exe installs whose CLI
+# has no `plugin` subcommand. A dsh profile is a pnpm workspace whose
+# package.json lists the plugin both as a dependency and in
+# dsh.profile.bundles (shape verified against a profile created by
+# `dsh plugin add` itself); the CLI does exactly these two edits plus the
+# package install, so we redo them by hand.
+function Register-DshProfile([string]$prof) {
+  $dir = Join-Path (Join-Path $env:USERPROFILE '.dsh\profiles') $prof
+  $pkg = Join-Path $dir 'package.json'
+  if (-not (Test-Path $pkg)) { warn "No dsh profile at $dir - start dsh once to create it, then re-run."; return }
+  backup $pkg
+  $data = Get-Content $pkg -Raw -Encoding UTF8 | ConvertFrom-Json
+  $deps = Get-RootObj $data @('dependencies')
+  if ($deps.PSObject.Properties['oed-mcp']) { $deps.'oed-mcp' = 'latest' }
+  else { $deps | Add-Member NoteProperty 'oed-mcp' 'latest' }
+  $profObj = Get-RootObj $data @('dsh', 'profile')
+  $bprop = $profObj.PSObject.Properties['bundles']
+  if ($bprop) {
+    if (@($bprop.Value) -notcontains 'oed-mcp') { $bprop.Value = @($bprop.Value) + 'oed-mcp' }
+  } else { $profObj | Add-Member NoteProperty 'bundles' @('oed-mcp') }
+  Write-TextNoBom $pkg ((ConvertTo-JsonPlain $data) + "`n")
+  $tool = $null
+  if (have pnpm) { $tool = 'pnpm' } elseif (have npm) { $tool = 'npm' }
+  if (-not $tool) { warn "Neither pnpm nor npm found - package.json updated; run the install inside '$dir' yourself."; return }
+  Push-Location $dir
+  try {
+    $rc = if ($tool -eq 'pnpm') { Invoke-Quiet { pnpm install --silent } } else { Invoke-Quiet { npm install --silent --no-fund --no-audit } }
+    if ($rc -eq 0) { ok "Installed oed-mcp into dsh profile '$prof' ($tool)" }
+    else { warn "Package install failed in '$dir' - package.json is updated; run it manually to see the error" }
+  } finally { Pop-Location }
+}
+
+function Unregister-Dsh {
+  $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
+  $pdir = Join-Path $dshHome 'profiles'
+  if (-not (Test-Path $pdir)) { warn 'No dsh profiles dir - nothing to do.'; return }
+  $cleaned = $false
+  foreach ($p in (Get-ChildItem $pdir -Directory)) {
+    if ((have dsh) -and ((Invoke-Quiet { dsh plugin --profile $p.Name remove oed-mcp }) -eq 0)) {
+      ok "Removed oed-mcp from dsh profile '$($p.Name)'"; $cleaned = $true; continue
+    }
+    # direct clean for profiles the fallback wrote (or where the CLI refused)
+    $pkg = Join-Path $p.FullName 'package.json'
+    if (-not (Test-Path $pkg)) { continue }
+    $data = Get-Content $pkg -Raw -Encoding UTF8 | ConvertFrom-Json
+    $changed = $false
+    $dprop = $data.PSObject.Properties['dependencies']
+    if ($dprop -and $dprop.Value -and $dprop.Value.PSObject.Properties['oed-mcp']) {
+      $dprop.Value.PSObject.Properties.Remove('oed-mcp'); $changed = $true
+    }
+    $dsh2 = $data.PSObject.Properties['dsh']
+    $bprop = $null
+    if ($dsh2 -and $dsh2.Value) {
+      $pr = $dsh2.Value.PSObject.Properties['profile']
+      if ($pr -and $pr.Value) { $bprop = $pr.Value.PSObject.Properties['bundles'] }
+    }
+    if ($bprop -and $bprop.Value) {
+      $kept = @($bprop.Value | Where-Object { $_ -ne 'oed-mcp' })
+      if ($kept.Count -ne @($bprop.Value).Count) { $bprop.Value = $kept; $changed = $true }
+    }
+    if ($changed) {
+      Write-TextNoBom $pkg ((ConvertTo-JsonPlain $data) + "`n")
+      ok "Removed oed-mcp from dsh profile '$($p.Name)' (package.json edited directly)"
+      $cleaned = $true
+    }
+  }
+  if (-not $cleaned) { warn "Remove manually: dsh plugin --profile <name> remove $NpmPkg (check the profile's bundle patch)." }
 }
 
 # ---------------- agent skills (parity with install.sh) ----------------
@@ -636,7 +710,7 @@ function Do-Unregister([string]$c) {
                     Remove-JsonServer (Join-Path $env:APPDATA 'Trae-CN\User\mcp.json') @('mcpServers')
                     Remove-JsonServer (Join-Path $env:USERPROFILE '.trae-cn\mcp.json') @('mcpServers') }
     'codex'       { Unregister-Codex }
-    'dsh'         { warn "Remove manually: dsh plugin --profile <name> remove $NpmPkg (check the profile's bundle patch)." }
+    'dsh'         { Unregister-Dsh }
     'openclaw'    { Remove-JsonServer (Join-Path $env:USERPROFILE '.openclaw\openclaw.json') @('mcp', 'servers') }
     'opencode'    { Remove-JsonServer $OpencodeConfig @('mcp') }
     'hermes'      { Unregister-Hermes }
@@ -701,7 +775,7 @@ Clients:
   trae         Trae (intl)          %APPDATA%\Trae\User\mcp.json
   trae-cn      Trae (China)         %APPDATA%\Trae CN|Trae-CN\User\mcp.json
   codex        Codex CLI            %USERPROFILE%\.codex\config.toml
-  dsh          dsh                  dsh plugin --profile <name> add oed-mcp
+  dsh          dsh                  dsh plugin --profile <name> add oed-mcp (exe installs: profile edited directly)
   gemini       Gemini CLI           gemini extensions install https://github.com/Hourunze1997/oed-mcp
   qwen         Qwen Code            qwen extensions install https://github.com/Hourunze1997/oed-mcp:oed
   openclaw     OpenClaw             %USERPROFILE%\.openclaw\openclaw.json (mcp.servers)
