@@ -5,8 +5,9 @@
   agent client's config, so any MCP-capable agent can drive every openEuler
   Infra service. The MCP server itself is `npx -y oed-mcp` (Node >= 18);
   on native Windows it is launched via `cmd /c "npx -y oed-mcp"` (quoted).
-  The repo's agent skills (.claude/skills/*) are also copied to
-  ~/.claude/skills (receipt-tracked), mirroring install.sh.
+  The repo's agent skills (.claude/skills/*) are installed into each client's
+  Agent-Skills directory (~/.claude\skills for Claude Code, ~\.dsh\skills for
+  dsh; receipt-tracked), mirroring install.sh.
 
 .EXAMPLE
   .\install-oed.ps1                 # auto-detect client
@@ -30,8 +31,11 @@ $McpEntry = [PSCustomObject]@{ command = 'cmd'; args = @('/c', 'npx -y oed-mcp')
 $KimiHome  = if ($env:KIMI_CODE_HOME) { $env:KIMI_CODE_HOME } else { Join-Path $env:USERPROFILE '.kimi-code' }
 $CodexToml = if ($env:CODEX_HOME)     { Join-Path $env:CODEX_HOME 'config.toml' } else { Join-Path $env:USERPROFILE '.codex\config.toml' }
 $OedRepo       = if ($env:OED_REPO) { $env:OED_REPO } else { 'https://gitcode.com/openeuler/oed-cli.git' }
-$SkillsDir     = Join-Path $env:USERPROFILE '.claude\skills'
-$SkillsReceipt = Join-Path $SkillsDir '.oed-installed'
+$SkillsDir      = Join-Path $env:USERPROFILE '.claude\skills'
+$OpencodeConfig = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
+# OpenCode's MCP entry has its own shape (mcp.<name>.{type,command,enabled}) -
+# not the mcpServers mapping most other clients use.
+$OpencodeEntry = [PSCustomObject]@{ type = 'local'; command = @('cmd', '/c', 'npx -y oed-mcp'); enabled = $true }
 
 $NoBom = New-Object System.Text.UTF8Encoding($false)
 
@@ -139,8 +143,9 @@ function Get-RootObj([object]$obj, [string[]]$keys) {
   return $obj
 }
 
-# Set-JsonServer <path> <root keys, outermost first>  e.g. @('tools','mcpServers')
-function Set-JsonServer([string]$path, [string[]]$rootKeys) {
+# Set-JsonServer <path> <root keys, outermost first> [entry]  e.g. @('tools','mcpServers')
+# $entry defaults to the mcpServers shape; OpenCode passes its own object.
+function Set-JsonServer([string]$path, [string[]]$rootKeys, $entry = $McpEntry) {
   backup $path
   $data = New-Object PSObject
   if ((Test-Path $path) -and ((Get-Item $path).Length -gt 0)) {
@@ -148,8 +153,8 @@ function Set-JsonServer([string]$path, [string[]]$rootKeys) {
     catch { die "$path is not valid JSON ($($_.Exception.Message)). Fix or remove it and re-run - a backup was written to $path.oed-backup." }
   }
   $srv = Get-RootObj $data $rootKeys
-  if ($srv.PSObject.Properties['oed']) { $srv.PSObject.Properties['oed'].Value = $McpEntry }
-  else { $srv | Add-Member NoteProperty 'oed' $McpEntry }
+  if ($srv.PSObject.Properties['oed']) { $srv.PSObject.Properties['oed'].Value = $entry }
+  else { $srv | Add-Member NoteProperty 'oed' $entry }
   Write-TextNoBom $path ((ConvertTo-JsonPlain $data) + "`n")
   ok "Registered oed MCP server in $path"
 }
@@ -409,6 +414,12 @@ function Register-Openclaw {
   }
 }
 
+# OpenCode reads MCP servers from the "mcp" key of opencode.json - its own
+# entry shape (type / command array / enabled), hence the dedicated object.
+function Register-Opencode {
+  Set-JsonServer $OpencodeConfig @('mcp') $OpencodeEntry
+}
+
 # VS Code: the user-scope mcp.json path IS reliable on Windows, so write it
 # directly; fall back to the official `code --add-mcp` when no profile dir exists.
 function Register-Vscode {
@@ -497,13 +508,47 @@ function Register-Dsh {
 
 # ---------------- agent skills (parity with install.sh) ----------------
 
-# Copy the repo's agent skills (.claude/skills/*) into ~/.claude/skills so
-# Agent-Skills-compatible clients (Claude Code) can use them. A sparse clone
-# enumerates whatever skill directories exist upstream - skills added to the
-# repo later are picked up by simply re-running this script. A receipt file
-# (.oed-installed) tracks what WE installed: the user's own skills are never
-# touched. Best effort - a failure here never blocks the CLI or MCP install.
-function Install-Skills {
+# Where each client actually reads Agent Skills from - verified per tool in
+# code / --help / official docs (Nov 2026): each entry is the client's
+# native dir (opencode's own config dir is read unconditionally, unlike
+# ~/.agents\skills which OPENCODE_DISABLE_EXTERNAL_SKILLS can turn off;
+# antigravity per antigravity.google/docs/skills); ~/.agents\skills is the
+# cross-agent standard shared by OpenClaw, Kimi Code, VS Code, Copilot CLI
+# and Pi. Every supported client reads skills.
+function Get-SkillDirs([string]$c) {
+  switch ($c) {
+    'claude'     { return @($SkillsDir) }
+    'dsh'        { $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
+                   return @(Join-Path $dshHome 'skills') }
+    'hermes'     { $h = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:USERPROFILE '.hermes' }
+                   return @(Join-Path $h 'skills') }
+    'trae'       { return @(Join-Path $env:USERPROFILE '.trae\skills') }
+    'trae-cn'    { return @(Join-Path $env:USERPROFILE '.trae-cn\skills') }
+    'nanobot'    { return @(Join-Path $env:USERPROFILE '.nanobot\workspace\skills') }
+    'kiro'       { return @(Join-Path $env:USERPROFILE '.kiro\skills') }
+    'opencode'   { $cfg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $env:USERPROFILE '.config' }
+                   return @(Join-Path $cfg 'opencode\skills') }
+    'cursor'     { return @(Join-Path $env:USERPROFILE '.cursor\skills') }
+    'codex'      { $cx = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+                   return @(Join-Path $cx 'skills') }
+    'gemini'     { return @(Join-Path $env:USERPROFILE '.gemini\skills') }
+    'qwen'       { $qw = if ($env:QWEN_HOME) { $env:QWEN_HOME } else { Join-Path $env:USERPROFILE '.qwen' }
+                   return @(Join-Path $qw 'skills') }
+    'antigravity' { return @(Join-Path $env:USERPROFILE '.gemini\config\skills') }
+    { $_ -in 'openclaw', 'kimi', 'vscode', 'copilot', 'pi' } {
+                   return @(Join-Path $env:USERPROFILE '.agents\skills') }
+    default      { return @() }
+  }
+}
+
+# Copy the repo's agent skills (.claude/skills/*) into the skills directory
+# given as $dest. A sparse clone enumerates whatever skill directories exist
+# upstream - skills added to the repo later are picked up by simply
+# re-running this script. Each destination gets its own .oed-installed
+# receipt so -Uninstall only removes what WE put there: the user's own
+# skills are never touched. Best effort - a failure here never blocks the
+# CLI or MCP install.
+function Install-Skills([string]$dest) {
   if (-not (have git)) { warn 'git not found - skipping skills (CLI and MCP are unaffected)'; return }
   $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
   if ((Invoke-Quiet { git clone --depth 1 --filter=blob:none --sparse --quiet $OedRepo $tmp }) -ne 0 -or
@@ -512,43 +557,45 @@ function Install-Skills {
     warn "Could not fetch $OedRepo - skipping skills (CLI and MCP are unaffected)"
     return
   }
-  New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
+  New-Item -ItemType Directory -Path $dest -Force | Out-Null
+  $receiptPath = Join-Path $dest '.oed-installed'
   $receipt = @()
-  if (Test-Path $SkillsReceipt) { $receipt = @(Get-Content $SkillsReceipt -ErrorAction SilentlyContinue) }
+  if (Test-Path $receiptPath) { $receipt = @(Get-Content $receiptPath -ErrorAction SilentlyContinue) }
   $installed = @()
   foreach ($d in @(Get-ChildItem (Join-Path $tmp '.claude\skills') -Directory -ErrorAction SilentlyContinue)) {
     $name = $d.Name
-    $dest = Join-Path $SkillsDir $name
-    if ((Test-Path $dest) -and ($receipt -notcontains $name)) {
-      warn "skills/$name exists but was not installed by oed - leaving it alone"
+    $target = Join-Path $dest $name
+    if ((Test-Path $target) -and ($receipt -notcontains $name)) {
+      warn "skills/$name exists in $dest but was not installed by oed - leaving it alone"
       continue
     }
-    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-    Copy-Item $d.FullName $dest -Recurse -Force
+    if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+    Copy-Item $d.FullName $target -Recurse -Force
     if ($receipt -notcontains $name) { $receipt += $name }
     $installed += $name
   }
   Remove-Item $tmp -Recurse -Force
   if ($installed.Count -gt 0) {
-    Set-Content -Path $SkillsReceipt -Value $receipt -Encoding ASCII
-    ok "Skills installed to $SkillsDir :$($installed -join ' ')"
+    Set-Content -Path $receiptPath -Value $receipt -Encoding ASCII
+    ok "Skills installed to $dest :$($installed -join ' ')"
   } else {
-    ok "Skills already present at $SkillsDir"
+    ok "Skills already present at $dest"
   }
 }
 
-function Uninstall-Skills {
+function Uninstall-Skills([string]$dest) {
   # Remove exactly the skills this script installed (tracked in the receipt);
-  # anything else living in ~/.claude/skills stays untouched.
-  if (-not (Test-Path $SkillsReceipt)) { return }
+  # anything else living in the directory stays untouched.
+  $receiptPath = Join-Path $dest '.oed-installed'
+  if (-not (Test-Path $receiptPath)) { return }
   $removed = @()
-  foreach ($name in @(Get-Content $SkillsReceipt -ErrorAction SilentlyContinue)) {
+  foreach ($name in @(Get-Content $receiptPath -ErrorAction SilentlyContinue)) {
     if (-not $name) { continue }
-    $dest = Join-Path $SkillsDir $name
-    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force; $removed += $name }
+    $target = Join-Path $dest $name
+    if (Test-Path $target) { Remove-Item $target -Recurse -Force; $removed += $name }
   }
-  Remove-Item $SkillsReceipt -Force
-  if ($removed.Count -gt 0) { ok "Removed skills :$($removed -join ' ')" }
+  Remove-Item $receiptPath -Force
+  if ($removed.Count -gt 0) { ok "Removed skills from $dest :$($removed -join ' ')" }
 }
 
 # ---------------- dispatch ----------------
@@ -565,6 +612,7 @@ function Do-Register([string]$c) {
     'gemini'      { Register-Gemini }
     'qwen'        { Register-Qwen }
     'openclaw'    { Register-Openclaw }
+    'opencode'    { Register-Opencode }
     'hermes'      { Register-Hermes }
     'kimi'        { Set-JsonServer (Join-Path $KimiHome 'mcp.json') @('mcpServers') }
     'vscode'      { Register-Vscode }
@@ -590,6 +638,7 @@ function Do-Unregister([string]$c) {
     'codex'       { Unregister-Codex }
     'dsh'         { warn "Remove manually: dsh plugin --profile <name> remove $NpmPkg (check the profile's bundle patch)." }
     'openclaw'    { Remove-JsonServer (Join-Path $env:USERPROFILE '.openclaw\openclaw.json') @('mcp', 'servers') }
+    'opencode'    { Remove-JsonServer $OpencodeConfig @('mcp') }
     'hermes'      { Unregister-Hermes }
     'kimi'        { Remove-JsonServer (Join-Path $KimiHome 'mcp.json') @('mcpServers') }
     'vscode'      { foreach ($f in @((Join-Path $env:APPDATA 'Code\User\mcp.json'),
@@ -615,7 +664,7 @@ function Do-Unregister([string]$c) {
 }
 
 function Detect-Client {
-  foreach ($c in 'claude', 'cursor', 'dsh', 'gemini', 'qwen', 'codex', 'openclaw', 'kimi', 'hermes', 'copilot', 'pi', 'nanobot') {
+  foreach ($c in 'claude', 'cursor', 'dsh', 'gemini', 'qwen', 'codex', 'openclaw', 'opencode', 'kimi', 'hermes', 'copilot', 'pi', 'nanobot') {
     if (have $c) { return $c }
   }
   if (have code) { return 'vscode' }
@@ -627,6 +676,7 @@ function Detect-Client {
                    @('.kiro', 'kiro'), @('.nanobot', 'nanobot'), @('.pi', 'pi'))) {
     if (Test-Path (Join-Path $env:USERPROFILE $m[0])) { return $m[1] }
   }
+  if (Test-Path (Join-Path $env:USERPROFILE '.config\opencode')) { return 'opencode' }
   if (Test-Path $KimiHome) { return 'kimi' }
   return ''
 }
@@ -651,6 +701,7 @@ Clients:
   gemini       Gemini CLI           gemini extensions install https://github.com/Hourunze1997/oed-mcp
   qwen         Qwen Code            qwen extensions install https://github.com/Hourunze1997/oed-mcp:oed
   openclaw     OpenClaw             %USERPROFILE%\.openclaw\openclaw.json (mcp.servers)
+  opencode     OpenCode             %USERPROFILE%\.config\opencode\opencode.json (mcp)
   hermes       Hermes Agent         %USERPROFILE%\.hermes\config.yaml
   kimi         Kimi Code CLI        %USERPROFILE%\.kimi-code\mcp.json
   vscode       VS Code (Copilot)    %APPDATA%\Code\User\mcp.json
@@ -661,10 +712,18 @@ Clients:
   kiro         Kiro CLI / IDE       %USERPROFILE%\.kiro\settings\mcp.json
   cli-only     install the CLI only, touch no client config
 
-The repo's agent skills (.claude/skills/*) are copied to ~/.claude/skills
-on install (cli-only skips them). Re-run this script to pick up skills
-added upstream. A receipt (.oed-installed) tracks what was installed -
-your own skills are never touched.
+The repo's agent skills (.claude/skills/*) are installed into the
+Agent-Skills directories the chosen client reads - Claude Code:
+~/.claude/skills, dsh: ~/.dsh/skills, hermes: ~/.hermes/skills,
+trae: ~/.trae/skills, trae-cn: ~/.trae-cn/skills, nanobot:
+~/.nanobot/workspace/skills, kiro: ~/.kiro/skills,
+opencode: ~/.config/opencode/skills, cursor: ~/.cursor/skills,
+codex: ~/.codex/skills, gemini: ~/.gemini/skills, qwen: ~/.qwen/skills,
+antigravity: ~/.gemini/config/skills, and the cross-agent standard
+~/.agents/skills (shared by OpenClaw, Kimi Code, VS Code, Copilot CLI
+and Pi). Every supported client reads skills. Re-run this script to
+pick up skills added upstream. A receipt (.oed-installed) tracks what
+was installed - your own skills are never touched.
 
 Most gateway services (CVE, packages, forum, mailman, search) work
 anonymously. Services that need identity: run `oed login` (openEuler oneid)
@@ -684,7 +743,7 @@ Write-Host ''
 if (-not $Client) { $Client = Detect-Client }
 if (-not $Client) {
   warn 'No agent client detected - installing the CLI only.'
-  warn 'Re-run with a client name to register MCP: .\install-oed.ps1 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>'
+  warn 'Re-run with a client name to register MCP: .\install-oed.ps1 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|opencode|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>'
   $Client = 'cli-only'
 }
 
@@ -693,12 +752,19 @@ if (-not $Uninstall) {
   Install-Cli
   Check-Node
   Do-Register $Client
-  # cli-only promises not to touch any client configuration - ~/.claude/skills
+  # cli-only promises not to touch any client configuration - ~/.claude\skills
   # is Claude Code's turf, so it stays out of that path too.
-  if ($Client -ne 'cli-only') { Install-Skills }
+  if ($Client -ne 'cli-only') {
+    $skillDirs = @(Get-SkillDirs $Client)
+    if ($skillDirs.Count -eq 0) {
+      info "Client '$Client' has no Agent-Skills directory - skipping skills (MCP registration is unaffected)."
+    } else {
+      foreach ($d in $skillDirs) { Install-Skills $d }
+    }
+  }
 } else {
   Do-Unregister $Client
-  Uninstall-Skills
+  foreach ($d in @(Get-SkillDirs $Client)) { Uninstall-Skills $d }
 }
 
 Write-Host ''

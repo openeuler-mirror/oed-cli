@@ -1,5 +1,5 @@
 ---
-name: oed-software-analysis
+name: openeuler-software-analysis
 description: "分析一款软件在 openEuler 社区的整体支持情况（RPM / 应用镜像 / pip / oepkg / conda 等全形态的收录、版本、OS/架构覆盖、仓库来源、维护者与活跃度），产出三个视图：OS 主视图（版本支持矩阵）、版本全量清单（每个可用版本 × 可得形态交叉表）、覆盖结论。**不做与上游版本的差距对比**。当用户要求「分析 XX 软件在 openEuler 的支持情况/收录情况」「XX 在 openEuler 哪些版本可用」「用 easysoftware/search 查软件」时加载本 skill。核心结论：search.searchSoftwareByKeyword（POST）是唯一可靠的搜索入口；easysoftware 的 eulerver 系列是精确匹配，必须先用模糊搜索拿到真实包名（如 python3-vllm、vllm-cpu）再查；easysoftware 的 searchRPMPkg 等搜索接口目前后端损坏（永远 400），不要浪费时间。"
 ---
 

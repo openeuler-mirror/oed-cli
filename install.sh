@@ -2,9 +2,10 @@
 # oed one-line installer.
 #
 # Installs the `oed` CLI (pip), wires the `oed-mcp` MCP server into your
-# agent client's configuration, and copies the repo's agent skills into
-# ~/.claude/skills — so any MCP-capable agent can drive every openEuler Infra
-# service. The MCP server itself is `npx -y oed-mcp` (Node >= 18); it
+# agent client's configuration, and installs the repo's agent skills into the
+# client's Agent-Skills directory (~/.claude/skills for Claude Code,
+# ~/.dsh/skills for dsh) — so any MCP-capable agent can drive every openEuler
+# Infra service. The MCP server itself is `npx -y oed-mcp` (Node >= 18); it
 # bootstraps the `oed` CLI automatically if pip is available.
 #
 #   curl -fsSL https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.sh | bash             # auto-detect
@@ -20,7 +21,6 @@ MCP_NPM="oed-mcp"
 MCP_ARGS='["-y","oed-mcp"]'
 OED_REPO="${OED_REPO:-https://gitcode.com/openeuler/oed-cli.git}"
 SKILLS_DIR="$HOME/.claude/skills"
-SKILLS_RECEIPT="$SKILLS_DIR/.oed-installed"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m ✓\033[0m %s\n' "$*"; }
@@ -47,6 +47,7 @@ Clients:
   gemini       Gemini CLI           gemini extensions install https://github.com/Hourunze1997/oed-mcp
   qwen         Qwen Code            qwen extensions install https://github.com/Hourunze1997/oed-mcp:oed
   openclaw     OpenClaw             openclaw mcp add oed -- npx -y oed-mcp
+  opencode     OpenCode             ~/.config/opencode/opencode.json (mcp)
   hermes       Hermes Agent         ~/.hermes/config.yaml
   kimi         Kimi Code CLI        ~/.kimi-code/mcp.json
   vscode       VS Code (Copilot)    code --add-mcp oed
@@ -62,10 +63,19 @@ anonymously. Services that need identity: run `oed login` (openEuler oneid)
 or `oed ag login` (AtomGit) afterwards — interactively, by you.
 
 Skills:
-  the repo's agent skills (.claude/skills/*) are copied to ~/.claude/skills
-  on install (cli-only skips them). Re-run this script to pick up skills
-  added upstream; --uninstall removes the ones it installed (tracked in
-  .oed-installed; your own skills are never touched).
+  the repo's agent skills (.claude/skills/*) are installed into the
+  Agent-Skills directories the chosen client reads — Claude Code:
+  ~/.claude/skills, dsh: ~/.dsh/skills, hermes: ~/.hermes/skills,
+  trae: ~/.trae/skills, trae-cn: ~/.trae-cn/skills, nanobot:
+  ~/.nanobot/workspace/skills, kiro: ~/.kiro/skills,
+  opencode: ~/.config/opencode/skills, cursor: ~/.cursor/skills,
+  codex: ~/.codex/skills, gemini: ~/.gemini/skills, qwen: ~/.qwen/skills,
+  antigravity: ~/.gemini/config/skills, and the cross-agent standard
+  ~/.agents/skills (shared by OpenClaw, Kimi Code, VS Code, Copilot CLI
+  and Pi). Every supported client reads skills.
+  Re-run this script to pick up skills added upstream; --uninstall removes
+  the ones it installed (tracked in a .oed-installed receipt; your own
+  skills are never touched).
 
 Environment:
   OED_REPO     git repo for skills fetch   (default: openeuler/oed-cli)
@@ -359,6 +369,50 @@ else:
 PY
 }
 
+# OpenCode reads MCP servers from the "mcp" key of ~/.config/opencode/opencode.json
+# — shape differs from mcpServers (type/command array/enabled), so register_json
+# would write a config OpenCode can't parse.
+register_opencode() {
+  local f="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
+  backup "$f"
+  python3 - "$f" "$MCP_NPM" "$MCP_ARGS" <<'PY'
+import json, os, sys
+path, npm, args = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+data = {}
+if os.path.exists(path) and os.path.getsize(path) > 0:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except json.JSONDecodeError as e:
+        sys.exit(f"✗ {path} is not valid JSON ({e}). Fix or remove it and re-run — a backup was just written to {path}.oed-backup.")
+data.setdefault("mcp", {})["oed"] = {"type": "local", "command": ["npx", *args], "enabled": True}
+os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2, ensure_ascii=False)
+    fh.write("\n")
+PY
+  ok "Registered oed MCP server in $f (opencode reads the mcp key — restart OpenCode to load it)"
+}
+
+unregister_opencode() {
+  local f="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
+  [ -f "$f" ] || { warn "No $f — nothing to do"; return 0; }
+  python3 - "$f" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh)
+removed = data.get("mcp", {}).pop("oed", None)
+if removed is not None:
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    print(f" ✓ Removed oed from {path}")
+else:
+    print(f" ! oed not found in {path}")
+PY
+}
+
 # Hermes Agent has no generic CLI add command — its MCP servers are a YAML
 # mapping under top-level mcp_servers in ~/.hermes/config.yaml. Edit the file
 # directly (line-scan, no PyYAML dependency), same spirit as register_codex.
@@ -568,12 +622,51 @@ else:
 PY
 }
 
+# Skills go where the chosen client actually reads them — verified per tool
+# in code / --help / official docs (Nov 2026): Claude Code ~/.claude/skills
+# (its binary knows no other dir), dsh ~/.dsh/skills (its skill-filesystem
+# user root, honoring $DSH_HOME), hermes ~/.hermes/skills (does NOT read the
+# standard dir), trae ~/.trae/skills / trae-cn ~/.trae-cn/skills
+# (product-global), nanobot ~/.nanobot/workspace/skills (its default
+# workspace), kiro ~/.kiro/skills (kiro.dev/docs/cli/skills; CLI and IDE
+# share it), opencode ~/.config/opencode/skills (its own config dir — read
+# unconditionally, unlike ~/.agents/skills which OPENCODE_DISABLE_EXTERNAL_
+# SKILLS can turn off; XDG_CONFIG_HOME honored), cursor ~/.cursor/skills
+# (cursor-agent user-scope table), codex $CODEX_HOME/skills, gemini
+# ~/.gemini/skills, qwen ~/.qwen/skills ($QWEN_HOME honored, wins ties),
+# antigravity ~/.gemini/config/skills (antigravity.google/docs/skills; the
+# legacy ~/.gemini/antigravity/skills still works but is legacy), and
+# ~/.agents/skills — the cross-agent standard shared by OpenClaw, Kimi
+# Code, VS Code, Copilot CLI and Pi. Every supported client reads skills.
+skills_dirs_for() {
+  case "$1" in
+    claude)     echo "$SKILLS_DIR" ;;
+    dsh)        echo "${DSH_HOME:-$HOME/.dsh}/skills" ;;
+    hermes)     echo "${HERMES_HOME:-$HOME/.hermes}/skills" ;;
+    trae)       echo "$HOME/.trae/skills" ;;
+    trae-cn)    echo "$HOME/.trae-cn/skills" ;;
+    nanobot)    echo "$HOME/.nanobot/workspace/skills" ;;
+    kiro)       echo "$HOME/.kiro/skills" ;;
+    opencode)   echo "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills" ;;
+    cursor)     echo "$HOME/.cursor/skills" ;;
+    codex)      echo "${CODEX_HOME:-$HOME/.codex}/skills" ;;
+    gemini)     echo "$HOME/.gemini/skills" ;;
+    qwen)       echo "${QWEN_HOME:-$HOME/.qwen}/skills" ;;
+    antigravity) echo "$HOME/.gemini/config/skills" ;;
+    openclaw|kimi|vscode|copilot|pi) echo "$HOME/.agents/skills" ;;
+    *)          echo "" ;;
+  esac
+}
+
 install_skills() {
-  # Copy the repo's agent skills (.claude/skills/*) into ~/.claude/skills so
-  # Agent-Skills-compatible clients (Claude Code) can use them. The sparse
-  # clone enumerates whatever skill directories exist upstream — skills added
-  # to the repo later are picked up by simply re-running this script. Best
-  # effort: a failure here never blocks the CLI or MCP install.
+  # Copy the repo's agent skills (.claude/skills/*) into the skills directory
+  # given as $1. The sparse clone enumerates whatever skill directories exist
+  # upstream — skills added to the repo later are picked up by simply
+  # re-running this script. Each destination gets its own .oed-installed
+  # receipt so --uninstall only removes what WE put there. Best effort: a
+  # failure here never blocks the CLI or MCP install.
+  local dest="$1"
+  local receipt="$dest/.oed-installed"
   have git || { warn "git not found — skipping skills (CLI and MCP are unaffected)"; return 0; }
   local tmp d name installed=""
   tmp="$(mktemp -d)" || { warn "mktemp failed — skipping skills"; return 0; }
@@ -583,41 +676,43 @@ install_skills() {
     warn "Could not fetch $OED_REPO — skipping skills (CLI and MCP are unaffected)"
     return 0
   fi
-  mkdir -p "$SKILLS_DIR"
+  mkdir -p "$dest"
   for d in "$tmp"/.claude/skills/*/; do
     [ -d "$d" ] || continue
     name="$(basename "$d")"
-    if [ -e "$SKILLS_DIR/$name" ] && ! grep -qxs "$name" "$SKILLS_RECEIPT" 2>/dev/null; then
-      warn "skills/$name exists but was not installed by oed — leaving it alone"
+    if [ -e "$dest/$name" ] && ! grep -qxs "$name" "$receipt" 2>/dev/null; then
+      warn "skills/$name exists in $dest but was not installed by oed — leaving it alone"
       continue
     fi
-    rm -rf "$SKILLS_DIR/$name"
-    cp -R "$d" "$SKILLS_DIR/$name"
-    grep -qxs "$name" "$SKILLS_RECEIPT" 2>/dev/null || echo "$name" >> "$SKILLS_RECEIPT"
+    rm -rf "$dest/$name"
+    cp -R "$d" "$dest/$name"
+    grep -qxs "$name" "$receipt" 2>/dev/null || echo "$name" >> "$receipt"
     installed="$installed $name"
   done
   rm -rf "$tmp"
   if [ -n "$installed" ]; then
-    ok "Skills installed to $SKILLS_DIR:$installed"
+    ok "Skills installed to $dest:$installed"
   else
-    ok "Skills already present at $SKILLS_DIR"
+    ok "Skills already present at $dest"
   fi
 }
 
 uninstall_skills() {
   # Remove exactly the skills this script installed (tracked in the receipt);
-  # anything else living in ~/.claude/skills stays untouched.
-  [ -f "$SKILLS_RECEIPT" ] || return 0
+  # anything else living in the directory stays untouched.
+  local dest="$1"
+  local receipt="$dest/.oed-installed"
+  [ -f "$receipt" ] || return 0
   local name removed=""
   while IFS= read -r name; do
     [ -n "$name" ] || continue
-    if [ -e "$SKILLS_DIR/$name" ]; then
-      rm -rf "$SKILLS_DIR/$name"
+    if [ -e "$dest/$name" ]; then
+      rm -rf "$dest/$name"
       removed="$removed $name"
     fi
-  done < "$SKILLS_RECEIPT"
-  rm -f "$SKILLS_RECEIPT"
-  [ -n "$removed" ] && ok "Removed skills:$removed"
+  done < "$receipt"
+  rm -f "$receipt"
+  [ -n "$removed" ] && ok "Removed skills from $dest:$removed"
   return 0
 }
 
@@ -636,6 +731,7 @@ do_register() {
     codex)     register_codex ;;
     dsh)       register_dsh ;;
     openclaw)  register_openclaw ;;
+    opencode)  register_opencode ;;
     hermes)    register_hermes ;;
     kimi)      register_json "${KIMI_CODE_HOME:-$HOME/.kimi-code}/mcp.json" ;;
     vscode)    register_vscode ;;
@@ -664,6 +760,7 @@ do_unregister() {
     codex)     unregister_codex ;;
     dsh)       warn "Remove manually: dsh plugin --profile <name> remove $MCP_NPM (check the profile's bundle patch)." ;;
     openclaw)  unregister_openclaw ;;
+    opencode)  unregister_opencode ;;
     hermes)    unregister_hermes ;;
     kimi)      unregister_json "${KIMI_CODE_HOME:-$HOME/.kimi-code}/mcp.json" ;;
     vscode)    for f in "$HOME/.config/Code/User/mcp.json" "$HOME/Library/Application Support/Code/User/mcp.json"; do
@@ -682,7 +779,7 @@ do_unregister() {
 }
 
 detect_client() {
-  for c in claude cursor dsh gemini qwen codex openclaw kimi hermes copilot pi nanobot; do
+  for c in claude cursor dsh gemini qwen codex openclaw opencode kimi hermes copilot pi nanobot; do
     if have "$c"; then echo "$c"; return 0; fi
   done
   if have code; then echo vscode; return 0; fi
@@ -694,6 +791,7 @@ detect_client() {
   for d in "$HOME/.cursor" "$HOME/.codex" "$HOME/.trae" "$HOME/.trae-cn" "$HOME/.openclaw" "$HOME/.hermes" "$HOME/.gemini/antigravity" "$HOME/.kiro" "$HOME/.nanobot" "$HOME/.pi"; do
     if [ -d "$d" ]; then basename "$d" | sed 's/^\.//'; return 0; fi
   done
+  if [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/opencode" ]; then echo opencode; return 0; fi
   if [ -d "${KIMI_CODE_HOME:-$HOME/.kimi-code}" ]; then echo kimi; return 0; fi
   echo ""
 }
@@ -717,19 +815,28 @@ main() {
   echo ""
 
   [ -n "$client" ] || { client="$(detect_client)"; }
-  [ -n "$client" ] || { warn "No agent client detected — installing the CLI only."; warn "Re-run with a client name to register MCP: $0 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>"; client="cli-only"; }
+  [ -n "$client" ] || { warn "No agent client detected — installing the CLI only."; warn "Re-run with a client name to register MCP: $0 <claude|cursor|trae|trae-cn|codex|dsh|gemini|qwen|openclaw|opencode|hermes|kimi|vscode|copilot|antigravity|pi|nanobot|kiro>"; client="cli-only"; }
 
   info "Target client: $client"
+  local d skill_dirs
   if [ "$action" = "register" ]; then
     install_cli
     check_node
     do_register "$client"
-    # cli-only promises not to touch any client configuration — ~/.claude/skills
-    # is Claude Code's turf, so it stays out of that path too.
-    [ "$client" = "cli-only" ] || install_skills
+    # Install the repo's skills into every Agent-Skills directory the client
+    # reads. cli-only promises not to touch any client configuration — and
+    # ~/.claude/skills is Claude Code's turf — so it stays out of that path.
+    if [ "$client" != "cli-only" ]; then
+      skill_dirs="$(skills_dirs_for "$client")"
+      if [ -z "$skill_dirs" ]; then
+        info "Client '$client' has no Agent-Skills directory — skipping skills (MCP registration is unaffected)."
+      else
+        for d in $skill_dirs; do install_skills "$d"; done
+      fi
+    fi
   else
     do_unregister "$client"
-    uninstall_skills
+    for d in $(skills_dirs_for "$client"); do uninstall_skills "$d"; done
   fi
 
   echo ""
