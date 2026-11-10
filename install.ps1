@@ -57,13 +57,13 @@ function backup([string]$f) {
 # Remove-Item/Copy-Item aborts the whole run on the classic Windows transient
 # locks: Defender/OneDrive/indexer scanning the fresh clone, or the agent
 # itself running with its skills directory open. Skills are contractually
-# best-effort - retry once, then warn and keep going, never block the CLI or
-# MCP install.
+# best-effort - retry a few times, then warn and keep going, never block the
+# CLI or MCP install.
 function Remove-SkillDir([string]$path) {
-  for ($i = 1; $i -le 2; $i++) {
+  for ($i = 1; $i -le 3; $i++) {
     try { Remove-Item $path -Recurse -Force; return } catch {
-      if ($i -eq 2) { warn "Could not remove $path - $($_.Exception.Message)" }
-      else { Start-Sleep -Milliseconds 300 }
+      if ($i -eq 3) { warn "Could not remove $path - $($_.Exception.Message)" }
+      else { Start-Sleep -Milliseconds 500 }
     }
   }
 }
@@ -73,17 +73,26 @@ function Copy-SkillDir([string]$src, [string]$dst) {
   # already exists because the removal above was blocked, that would nest the
   # skill one level deeper). Hidden items are skipped by the wildcard; our
   # skill dirs hold none.
-  for ($i = 1; $i -le 2; $i++) {
+  for ($i = 1; $i -le 3; $i++) {
     try {
       if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }
       Copy-Item (Join-Path $src '*') $dst -Recurse -Force
       return $true
     } catch {
-      if ($i -eq 2) { warn "Could not copy skills to $dst - $($_.Exception.Message)"; return $false }
-      Start-Sleep -Milliseconds 300
+      if ($i -eq 3) { warn "Could not copy skills to $dst - $($_.Exception.Message)"; return $false }
+      Start-Sleep -Milliseconds 500
     }
   }
   return $false
+}
+
+# Test-Path that survives the Windows delete-pending window: right after
+# Remove-Item a directory can still be "there" but throw Access Denied when
+# queried (the last handle is held by AV/indexer). Returns $null when the
+# answer is unknowable - callers decide with the receipt whether proceeding
+# is safe.
+function Test-PathSafe([string]$path) {
+  try { return (Test-Path $path) } catch { return $null }
 }
 
 # Run a native command with stderr swallowed (PS 5.1 turns redirected stderr
@@ -663,7 +672,7 @@ function Install-Skills([string]$dest) {
   $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
   if ((Invoke-Quiet { git clone --depth 1 --filter=blob:none --sparse --quiet $OedRepo $tmp }) -ne 0 -or
       (Invoke-Quiet { git -C $tmp sparse-checkout set .claude/skills }) -ne 0) {
-    if (Test-Path $tmp) { Remove-SkillDir $tmp }
+    if (Test-PathSafe $tmp) { Remove-SkillDir $tmp }
     warn "Could not fetch $OedRepo - skipping skills (CLI and MCP are unaffected)"
     return
   }
@@ -673,16 +682,23 @@ function Install-Skills([string]$dest) {
   }
   $receiptPath = Join-Path $dest '.oed-installed'
   $receipt = @()
-  if (Test-Path $receiptPath) { $receipt = @(Get-Content $receiptPath -ErrorAction SilentlyContinue) }
+  if ((Test-PathSafe $receiptPath) -eq $true) { $receipt = @(Get-Content $receiptPath -ErrorAction SilentlyContinue) }
   $installed = @()
   foreach ($d in @(Get-ChildItem (Join-Path $tmp '.claude\skills') -Directory -ErrorAction SilentlyContinue)) {
     $name = $d.Name
     $target = Join-Path $dest $name
-    if ((Test-Path $target) -and ($receipt -notcontains $name)) {
+    $exists = Test-PathSafe $target
+    if (($exists -eq $null) -and ($receipt -notcontains $name)) {
+      # Cannot tell whether $target is ours or the user's - without a receipt
+      # entry, assume the user's and leave it alone.
+      warn "skills/${name}: cannot stat $target (locked?) and no receipt entry - leaving it alone"
+      continue
+    }
+    if (($exists -eq $true) -and ($receipt -notcontains $name)) {
       warn "skills/$name exists in $dest but was not installed by oed - leaving it alone"
       continue
     }
-    if (Test-Path $target) { Remove-SkillDir $target }
+    if ($exists -ne $false) { Remove-SkillDir $target }
     if (-not (Copy-SkillDir $d.FullName $target)) { continue }
     if ($receipt -notcontains $name) { $receipt += $name }
     $installed += $name
@@ -702,12 +718,12 @@ function Uninstall-Skills([string]$dest) {
   # Remove exactly the skills this script installed (tracked in the receipt);
   # anything else living in the directory stays untouched.
   $receiptPath = Join-Path $dest '.oed-installed'
-  if (-not (Test-Path $receiptPath)) { return }
+  if ((Test-PathSafe $receiptPath) -ne $true) { return }
   $removed = @()
   foreach ($name in @(Get-Content $receiptPath -ErrorAction SilentlyContinue)) {
     if (-not $name) { continue }
     $target = Join-Path $dest $name
-    if (Test-Path $target) { Remove-SkillDir $target; $removed += $name }
+    if ((Test-PathSafe $target) -ne $false) { Remove-SkillDir $target; $removed += $name }
   }
   try { Remove-Item $receiptPath -Force } catch {
     warn "Could not remove $receiptPath - $($_.Exception.Message)"
@@ -871,27 +887,31 @@ if ($Clients.Count -eq 0) {
 }
 
 info "Target client(s): $($Clients -join ', ')"
+# Skills destinations are shared across clients (~/.agents\skills belongs to
+# openclaw/kimi/vscode/copilot/pi alike) - install/uninstall each DEST once,
+# not once per client: the repeated Remove+Copy on the same tree was the
+# main collision window for the Windows delete-pending "access denied".
+$skillDests = @($Clients | Where-Object { $_ -ne 'cli-only' } |
+                ForEach-Object { Get-SkillDirs $_ } | Where-Object { $_ } |
+                Select-Object -Unique)
 if (-not $Uninstall) {
   Install-Cli
   Check-Node
   foreach ($c in $Clients) {
-    Do-Register $c
-    # cli-only promises not to touch any client configuration - ~/.claude\skills
-    # is Claude Code's turf, so it stays out of that path too.
-    if ($c -ne 'cli-only') {
-      $skillDirs = @(Get-SkillDirs $c)
-      if ($skillDirs.Count -eq 0) {
-        info "Client '$c' has no Agent-Skills directory - skipping skills (MCP registration is unaffected)."
-      } else {
-        foreach ($d in $skillDirs) { Install-Skills $d }
-      }
+    # One client failing (locked file, refused CLI, bad config on disk) must
+    # never abort the run - warn and keep going with the rest.
+    try { Do-Register $c } catch {
+      warn "Client '$c' MCP registration failed - $($_.Exception.Message) - continuing"
     }
   }
+  foreach ($d in $skillDests) { Install-Skills $d }
 } else {
   foreach ($c in $Clients) {
-    Do-Unregister $c
-    foreach ($d in @(Get-SkillDirs $c)) { Uninstall-Skills $d }
+    try { Do-Unregister $c } catch {
+      warn "Client '$c' MCP unregistration failed - $($_.Exception.Message) - continuing"
+    }
   }
+  foreach ($d in $skillDests) { Uninstall-Skills $d }
 }
 
 Write-Host ''
