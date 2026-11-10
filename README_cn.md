@@ -3,7 +3,7 @@
 <p align="center">
   <strong>一条命令，打通 openEuler 全部在线服务 —— 自动发现、JSON 优先、为人和 AI Agent 而生。</strong>
   <br />
-  <em>支持 Claude Code、Cursor、VS Code、Codex、Gemini CLI、OpenClaw、Kimi Code、Kiro、扣子等 17+ 个客户端，以及普通的 shell 管道。</em>
+  <em>支持 Claude Code、Cursor、VS Code、Codex、Gemini CLI、OpenClaw、OpenCode、Kimi Code、Kiro、扣子等 18+ 个客户端，以及普通的 shell 管道。</em>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <a href="https://gitcode.com/openeuler/oed-cli/tree/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache-2.0" /></a>
   <a href="#一键安装-cli--mcp"><img src="https://img.shields.io/badge/MCP-oed--mcp-6f42c1" alt="MCP: oed-mcp" /></a>
   <a href=".claude/skills/oed-cli/SKILL.md"><img src="https://img.shields.io/badge/Agent_Skill-bundled-0969da" alt="Agent Skill: bundled" /></a>
-  <a href="#支持平台"><img src="https://img.shields.io/badge/平台-17%2B-orange" alt="平台: 17+" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/平台-18%2B-orange" alt="平台: 18+" /></a>
 </p>
 
 <p align="center">
@@ -28,6 +28,7 @@
   <a href="#支持平台"><img src="https://img.shields.io/badge/Qwen_Code-615CED" alt="Qwen Code" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/dsh-24292e" alt="dsh" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/OpenClaw-DC2626" alt="OpenClaw" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/OpenCode-F97316" alt="OpenCode" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/Hermes_Agent-BE185D" alt="Hermes Agent" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/Kimi_Code-0F766E" alt="Kimi Code" /></a>
   <a href="#支持平台"><img src="https://img.shields.io/badge/VS_Code-007ACC" alt="VS Code" /></a>
@@ -95,6 +96,8 @@ powershell -c "irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.
 powershell -c "& ([scriptblock]::Create((irm https://raw.gitcode.com/openeuler/oed-cli/raw/master/install.ps1))) cursor"
 ```
 
+脚本会把仓库自带的 Agent Skills 装进所选客户端读取的技能目录（Claude Code：`~/.claude/skills`；dsh：`~/.dsh/skills`），重复执行即可同步上游新增的 skills；没有技能目录约定的客户端只注册 MCP。
+
 安装完成后，验证是否成功：
 
 ```
@@ -141,6 +144,7 @@ oed ag login  # 登录atomgit
 | Qwen Code | Native | `qwen extensions install oed-mcp`（npm 渠道）· 或 `install.sh qwen` |
 | dsh | Shell-install | `install.sh dsh` |
 | OpenClaw | Shell-install | `install.sh openclaw` · 或 `openclaw mcp add oed --command npx --arg -y --arg oed-mcp` |
+| OpenCode | Shell-install | `install.sh opencode`（写 `~/.config/opencode/opencode.json` 的 `mcp`） |
 | Hermes Agent | Shell-install | `install.sh hermes` · 或在 `~/.hermes/config.yaml` 的 `mcp_servers` 下加 `oed` |
 | Kimi Code CLI | Shell-install | `install.sh kimi` · 或在 `~/.kimi-code/mcp.json` 的 `mcpServers` 里加 `oed` · 或 TUI 里 `/mcp-config` |
 | VS Code（含 Copilot Chat） | Shell-install | `install.sh vscode` · 或 `code --add-mcp '{"name":"oed","command":"npx","args":["-y","oed-mcp"]}'` |
